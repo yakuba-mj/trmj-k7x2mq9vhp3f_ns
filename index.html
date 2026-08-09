@@ -57,41 +57,36 @@
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useMemo } = React;
 
-// ===== 保存先：Supabase（メンバー全員で共有）=====
+// ===== 保存先：Supabase（メンバー全員で共有・合言葉つき）=====
 const SB_URL = "https://mmbekcjqmtqeadztvaff.supabase.co";
 const SB_KEY = "sb_publishable_NPwYszvuS_-SKi8KxlBCaA_i3VA6oXE";
+const PASS_KEY = "mahjong-pass";
 
-const sb = async (path, opts = {}) => {
-  const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
-    ...opts,
-    headers: {
-      apikey: SB_KEY,
-      "Content-Type": "application/json",
-      Prefer: opts.method && opts.method !== "GET" ? "return=minimal" : undefined,
-      ...opts.headers,
-    },
+const getPass = () => { try { return localStorage.getItem(PASS_KEY) || ""; } catch (e) { return ""; } };
+const savePass = (v) => { try { localStorage.setItem(PASS_KEY, v); } catch (e) {} };
+const clearPass = () => { try { localStorage.removeItem(PASS_KEY); } catch (e) {} };
+
+// すべての読み書きは合言葉つきの窓口関数(app_exec)を経由する
+const rpc = async (op, payload = {}) => {
+  const res = await fetch(`${SB_URL}/rest/v1/rpc/app_exec`, {
+    method: "POST",
+    headers: { apikey: SB_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({ pass: getPass(), op, payload }),
   });
-  if (!res.ok) throw new Error(`sb ${res.status}`);
-  if (opts.method && opts.method !== "GET") return null;
-  return res.json();
+  if (!res.ok) throw new Error("net");
+  const j = await res.json();
+  if (!j.ok) throw new Error(j.error || "op");
+  return j.data;
 };
 
 const dbLoad = async () => {
-  const [m, g, ga] = await Promise.all([
-    sb("members?select=*&order=id.asc"),
-    sb("groups?select=*&order=id.asc"),
-    sb("games?select=*&order=id.asc"),
-  ]);
+  const d = await rpc("load");
   return {
-    members: m,
-    groups: g.map((x) => ({ id: x.id, name: x.name, memberIds: x.member_ids })),
-    games: ga,
+    members: d.members,
+    groups: d.groups.map((x) => ({ id: x.id, name: x.name, memberIds: x.member_ids })),
+    games: d.games,
   };
 };
-const dbIns = (table, rows) => sb(table, { method: "POST", body: JSON.stringify(rows) });
-const dbUpd = (table, id, patch) => sb(`${table}?id=eq.${id}`, { method: "PATCH", body: JSON.stringify(patch) });
-const dbDel = (table, id) => sb(`${table}?id=eq.${id}`, { method: "DELETE" });
-const dbClear = (table) => sb(`${table}?id=gte.0`, { method: "DELETE" });
 const NET_ERR = "通信に失敗しました。電波を確認してもう一度お試しください。";
 
 
@@ -162,6 +157,9 @@ function MLeagueTracker() {
   const [tab, setTab] = useState("members");
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState(false);
+  const [needPass, setNeedPass] = useState(() => !getPass());
+  const [passInput, setPassInput] = useState("");
+  const [passErr, setPassErr] = useState("");
   const [err, setErr] = useState("");
 
   const loadAll = async (silent) => {
@@ -173,19 +171,42 @@ function MLeagueTracker() {
       setLoadErr(false);
       return d;
     } catch (e) {
-      if (!silent) setLoadErr(true);
+      if (e.message === "auth") {
+        clearPass();
+        setNeedPass(true);
+        setPassErr("合言葉が違います。");
+      } else if (!silent) {
+        setLoadErr(true);
+      }
       return null;
     }
   };
 
+  const submitPass = async () => {
+    const v = passInput.trim();
+    if (!v) { setPassErr("合言葉を入力してください。"); return; }
+    savePass(v);
+    setPassErr("");
+    setLoading(true);
+    const d = await loadAll(false);
+    if (d) {
+      setNeedPass(false);
+      setPassInput("");
+      if (d.members.length >= 4) setTab("input");
+    }
+    setLoading(false);
+  };
+
   useEffect(() => {
     (async () => {
-      const d = await loadAll(false);
-      if (d && d.members.length >= 4) setTab("input");
+      if (getPass()) {
+        const d = await loadAll(false);
+        if (d && d.members.length >= 4) setTab("input");
+      }
       setLoading(false);
     })();
     // 画面に戻ってきたら最新の記録に同期する
-    const onVis = () => { if (document.visibilityState === "visible") loadAll(true); };
+    const onVis = () => { if (document.visibilityState === "visible" && getPass()) loadAll(true); };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
@@ -210,7 +231,7 @@ function MLeagueTracker() {
     setErr("");
     const row = { id: Date.now(), name: n, color: null };
     try {
-      await dbIns("members", row);
+      await rpc("ins_member", row);
       setMembers([...members, row]);
       setNewName("");
     } catch (e) { setErr(NET_ERR); }
@@ -223,7 +244,7 @@ function MLeagueTracker() {
       setErr("同じ名前のメンバーがすでにいます。"); return;
     }
     try {
-      await dbUpd("members", editId, { name: n });
+      await rpc("upd_member", { id: editId, name: n });
       setMembers(members.map((m) => (m.id === editId ? { ...m, name: n } : m)));
       setEditId(null);
       setErr("");
@@ -289,12 +310,7 @@ function MLeagueTracker() {
                 date: g.date,
                 entries: g.entries.map((e) => ({ ...e, memberId: mMap.get(e.memberId) ?? e.memberId })),
               }));
-              await dbClear("games");
-              await dbClear("groups");
-              await dbClear("members");
-              if (nm.length) await dbIns("members", nm);
-              if (ng.length) await dbIns("groups", ng);
-              if (nga.length) await dbIns("games", nga);
+              await rpc("import", { members: nm, groups: ng, games: nga });
               await loadAll(false);
               setEditId(null);
               setIoMsg({ ok: true, text: `${d.games.length}半荘分を読み込み、全員に共有しました。` });
@@ -315,11 +331,7 @@ function MLeagueTracker() {
   const deleteMember = async (id) => {
     setErr("");
     try {
-      await dbDel("members", id);
-      const touched = groups.filter((g) => g.memberIds.includes(id));
-      for (const g of touched) {
-        await dbUpd("groups", g.id, { member_ids: g.memberIds.filter((x) => x !== id) });
-      }
+      await rpc("del_member", { id });
       setMembers(members.filter((m) => m.id !== id));
       setGroups(groups.map((g) => ({ ...g, memberIds: g.memberIds.filter((x) => x !== id) })));
       setSeats(seats.map((s) => (s === id ? null : s)));
@@ -338,7 +350,7 @@ function MLeagueTracker() {
     if (groupDraft.length !== 4) return setErr("メンバーを4人選んでください。");
     setErr("");
     const row = { id: Date.now(), name: n, memberIds: [...groupDraft] };
-    dbIns("groups", { id: row.id, name: row.name, member_ids: row.memberIds })
+    rpc("ins_group", { id: row.id, name: row.name, member_ids: row.memberIds })
       .then(() => {
         setGroups([...groups, row]);
         setNewGroupName("");
@@ -419,7 +431,7 @@ function MLeagueTracker() {
     }));
 
     const row = { id: Date.now(), date: gameDate, entries };
-    dbIns("games", row)
+    rpc("ins_game", row)
       .then(() => {
         setGames([...games, row]);
         setScores(["", "", "", ""]);
@@ -431,7 +443,7 @@ function MLeagueTracker() {
   };
 
   const removeGame = (id) => {
-    dbDel("games", id)
+    rpc("del_game", { id })
       .then(() => setGames(games.filter((g) => g.id !== id)))
       .catch(() => setErr(NET_ERR));
   };
@@ -662,6 +674,38 @@ function MLeagueTracker() {
   };
 
   if (loading) return <div style={S.wrap}><p style={S.empty}>読み込み中…</p></div>;
+
+  if (needPass) return (
+    <div style={S.page}>
+      <div style={S.wrap} className="safe">
+        <div style={{ height: 48 }} />
+        <div style={S.card} className="tabview card-tex">
+          <div style={{ textAlign: "center", padding: "8px 0 4px" }}>
+            <span style={{ ...S.monogram, display: "inline-flex", margin: "0 auto" }}>
+              <span style={S.monogramTile}>雀</span>
+            </span>
+            <h1 style={{ fontSize: 19, fontWeight: 800, margin: "14px 0 4px", color: INK, letterSpacing: "0.06em" }}>
+              麻雀成績記録
+            </h1>
+            <p style={{ ...S.hint, marginBottom: 20 }}>メンバー共有の記録帳です。合言葉を入力してください。</p>
+          </div>
+          <input
+            type="password"
+            value={passInput}
+            placeholder="合言葉"
+            style={{ ...S.memberInputOn, width: "100%", boxSizing: "border-box", padding: "13px 14px", fontSize: 16, textAlign: "center" }}
+            onChange={(e) => setPassInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submitPass()}
+          />
+          {passErr && <p style={S.err}>{passErr}</p>}
+          <button style={S.primary} className="press" onClick={submitPass}>ひらく</button>
+          <p style={{ ...S.hint, marginTop: 14, marginBottom: 0 }}>
+            合言葉は一度入力すれば、この端末に記憶されます。
+          </p>
+        </div>
+      </div>
+    </div>
+  );
 
   if (loadErr) return (
     <div style={S.page}>
@@ -1160,7 +1204,7 @@ function MLeagueTracker() {
                     title: `グループ「${g.name}」を削除しますか？`,
                     note: "対戦記録はそのまま残ります。",
                     onOk: () => {
-                              dbDel("groups", g.id)
+                              rpc("del_group", { id: g.id })
                                 .then(() => setGroups(groups.filter((x) => x.id !== g.id)))
                                 .catch(() => setErr(NET_ERR));
                             },
@@ -1204,7 +1248,7 @@ function MLeagueTracker() {
           </div>
 
           <div style={{ ...S.card, marginTop: 12 }} className="card-tex">
-            <div style={S.section}>データ <span style={S.verTag}>v3 共有版</span></div>
+            <div style={S.section}>データ <span style={S.verTag}>v3.1 合言葉つき</span></div>
             <p style={S.hint}>
               記録はネット上の共有データベースに保存され、メンバー全員で同じ内容が見られます。
               念のため、ときどき書き出してバックアップしておくと安心です。
