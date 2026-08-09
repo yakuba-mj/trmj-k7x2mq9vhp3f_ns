@@ -66,7 +66,6 @@ const sb = async (path, opts = {}) => {
     ...opts,
     headers: {
       apikey: SB_KEY,
-      Authorization: `Bearer ${SB_KEY}`,
       "Content-Type": "application/json",
       Prefer: opts.method && opts.method !== "GET" ? "return=minimal" : undefined,
       ...opts.headers,
