@@ -1,0 +1,1461 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#1E5A44">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="麻雀成績">
+<title>麻雀成績記録 - Mリーグルール</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%231E5A44'/><rect x='9' y='7' width='14' height='18' rx='2.5' fill='%23FCFBF8'/><circle cx='16' cy='16' r='4' fill='%23B03A2E'/></svg>">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<style>
+  * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #174737; }
+  body { -webkit-text-size-adjust: 100%; }
+  input, button, select { font-size: 16px; }
+  #boot { color: #fff; font-family: -apple-system, "Hiragino Sans", sans-serif;
+          padding: 40px 20px; text-align: center; line-height: 1.8; }
+  #boot b { display: block; font-size: 15px; margin-bottom: 6px; }
+  #boot span { font-size: 13px; color: rgba(255,255,255,.7); }
+  /* iPhoneのノッチ・ホームバーを避ける */
+  .safe { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right);
+          padding-bottom: env(safe-area-inset-bottom); }
+  /* iOSで入力時に自動ズームしないよう16px以上を維持 */
+  input, select, textarea { font-size: 16px; }
+  /* ダブルタップズームを抑制して操作を軽く */
+  button, select { touch-action: manipulation; }
+
+  /* v2: 素材感と動き */
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @keyframes drawLine { from { stroke-dashoffset: var(--len); } to { stroke-dashoffset: 0; } }
+  @keyframes popIn { 0% { opacity: 0; transform: scale(.6); } 60% { transform: scale(1.12); } 100% { opacity: 1; transform: scale(1); } }
+  /* タブ切り替え時に中身がふわっと出る */
+  .tabview { animation: fadeUp .28s ease both; }
+  /* カードの縁に微かな陰影と紙の質感 */
+  .card-tex { position: relative; }
+  .card-tex::after {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.8), inset 0 0 0 1px rgba(60,50,30,.05);
+  }
+  /* 押した時のわずかな沈み込み */
+  .press { transition: transform .08s ease; }
+  .press:active { transform: scale(.97); }
+  /* グラフの線を引く動き */
+  .chart-line { stroke-dasharray: var(--len); animation: drawLine .7s ease both; }
+  /* 累計トップの数字がふわっと */
+  .pop { animation: popIn .4s ease both; }
+</style>
+</head>
+<body>
+<div id="root"><div id="boot"><b>読み込み中…</b><span>共有記録を取得しています</span></div></div>
+
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo } = React;
+
+// ===== 保存先：Supabase（メンバー全員で共有）=====
+const SB_URL = "https://mmbekcjqmtqeadztvaff.supabase.co";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1tYmVrY2pxbXRxZWFkenR2YWZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYyODExOTYsImV4cCI6MjEwMTg1NzE5Nn0.lHbMXBBQgZ8zh6HSI_FNcrnMAKSmIbctMGyYnGKXtXQ";
+
+const sb = async (path, opts = {}) => {
+  const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
+    ...opts,
+    headers: {
+      apikey: SB_KEY,
+      Authorization: `Bearer ${SB_KEY}`,
+      "Content-Type": "application/json",
+      Prefer: opts.method && opts.method !== "GET" ? "return=minimal" : undefined,
+      ...opts.headers,
+    },
+  });
+  if (!res.ok) throw new Error(`sb ${res.status}`);
+  if (opts.method && opts.method !== "GET") return null;
+  return res.json();
+};
+
+const dbLoad = async () => {
+  const [m, g, ga] = await Promise.all([
+    sb("members?select=*&order=id.asc"),
+    sb("groups?select=*&order=id.asc"),
+    sb("games?select=*&order=id.asc"),
+  ]);
+  return {
+    members: m,
+    groups: g.map((x) => ({ id: x.id, name: x.name, memberIds: x.member_ids })),
+    games: ga,
+  };
+};
+const dbIns = (table, rows) => sb(table, { method: "POST", body: JSON.stringify(rows) });
+const dbUpd = (table, id, patch) => sb(`${table}?id=eq.${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+const dbDel = (table, id) => sb(`${table}?id=eq.${id}`, { method: "DELETE" });
+const dbClear = (table) => sb(`${table}?id=gte.0`, { method: "DELETE" });
+const NET_ERR = "通信に失敗しました。電波を確認してもう一度お試しください。";
+
+
+// ===== Mリーグルール（固定）=====
+// 25,000点持ち / 30,000点返し
+// 順位点（オカ込み）: 1位 +50 / 2位 +10 / 3位 -10 / 4位 -30
+// 素点は30,000点を基準に 1,000点 = 1pt / 同点は順位点を等分
+const START = 25000;
+const RETURN = 30000;
+const TOTAL = START * 4;
+const RANK_POINTS = [50, 10, -10, -30];
+
+// 点棒の色をメンバーカラーに転用
+const COLORS = ["#B03A2E", "#1F618D", "#1E8449", "#6C3483", "#B9770E", "#117864", "#A93226", "#5D6D7E"];
+
+
+// 着順の質感：一位=点棒の金、二位=卓の緑、三位=牌の骨白、四位=差し込みの朱
+const RANK_INK = ["#9A7B18", "#1E6F45", "#6B7280", "#B03A2E"];
+const RANK_BG = ["#FAF2D8", "#EAF2EA", "#F2F0E9", "#FAEAE4"];
+
+const RANK_TILE = ["#E8C766", "#7FC79B", "#D8D5CE", "#E88C7D"];
+const FELT = "#1E5A44";
+const INK = "#1C2321";
+const PLUS = "#1E6F45";
+const MINUS = "#B03A2E";
+
+// ===== デザイントークン（案A 静かな和 + 案B 質感を要所に）=====
+// 和紙(washi)の地・卓の緑(felt)・点棒の金(gold)を役割で固定し、余白は8pt基準で統一する
+const T = {
+  paper: "#FBF9F3",       // カードの地：象牙がかった和紙
+  paperHi: "#FFFFFF",     // 入力欄などの最前面
+  sink: "#F1EEE5",        // 一段沈んだ面（溝・補助情報）
+  line: "#E7E2D6",        // 通常の区切り線
+  lineSoft: "#EFEBE0",    // 弱い区切り線
+  gold: "#B8963E",        // 差し色の金（文字・ヘアライン）
+  goldHi: "#E8C766",      // 明るい金（メダル・強調）
+  ink: INK,
+  sub: "#8A8578",         // 補助テキスト
+  faint: "#B4AE9F",       // さらに薄いテキスト
+  felt: FELT,
+  radius: 14,             // カードの角丸
+  radiusSm: 9,            // 部品の角丸
+  // 和紙の上にそっと乗る、拡散した柔らかい影（案Bの物質感を控えめに）
+  shadow: "0 1px 1px rgba(60,50,30,.05), 0 8px 24px rgba(40,55,45,.10)",
+  shadowSoft: "0 1px 2px rgba(60,50,30,.06)",
+  goldHair: "inset 0 0 0 1px rgba(184,150,62,.22)",  // 金のヘアライン
+};
+
+function MLeagueTracker() {
+  const [members, setMembers] = useState([]);
+  const [groups, setGroups] = useState([]);
+  const [games, setGames] = useState([]);
+  const [seats, setSeats] = useState([null, null, null, null]);
+  const [scores, setScores] = useState(["", "", "", ""]);
+  const [autoFilled, setAutoFilled] = useState(-1);
+  const [gameDate, setGameDate] = useState(todayISO());
+  const [selectedDay, setSelectedDay] = useState(null);
+  const [totalGroupId, setTotalGroupId] = useState(null);
+  const [newName, setNewName] = useState("");
+  const [newGroupName, setNewGroupName] = useState("");
+  const [groupDraft, setGroupDraft] = useState([]);
+  const [showGroupForm, setShowGroupForm] = useState(false);
+  const [detailId, setDetailId] = useState(null);
+  const [confirmAsk, setConfirmAsk] = useState(null);
+  const [editId, setEditId] = useState(null);
+  const [editText, setEditText] = useState("");
+  const [ioMsg, setIoMsg] = useState(null);
+  const [tab, setTab] = useState("members");
+  const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState(false);
+  const [err, setErr] = useState("");
+
+  const loadAll = async (silent) => {
+    try {
+      const d = await dbLoad();
+      setMembers(d.members);
+      setGroups(d.groups);
+      setGames(d.games);
+      setLoadErr(false);
+      return d;
+    } catch (e) {
+      if (!silent) setLoadErr(true);
+      return null;
+    }
+  };
+
+  useEffect(() => {
+    (async () => {
+      const d = await loadAll(false);
+      if (d && d.members.length >= 4) setTab("input");
+      setLoading(false);
+    })();
+    // 画面に戻ってきたら最新の記録に同期する
+    const onVis = () => { if (document.visibilityState === "visible") loadAll(true); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
+
+  const memberName = (id) => {
+    const m = members.find((x) => x.id === id);
+    return m ? m.name : "（削除）";
+  };
+  const memberColor = (id) => {
+    const i = members.findIndex((x) => x.id === id);
+    return COLORS[(i < 0 ? 0 : i) % COLORS.length];
+  };
+
+  // ===== メンバー =====
+  const addMember = async () => {
+    const n = newName.trim();
+    if (!n) return;
+    if (members.some((m) => m.name === n)) {
+      setErr("同じ名前のメンバーがすでにいます。");
+      return;
+    }
+    setErr("");
+    const row = { id: Date.now(), name: n, color: null };
+    try {
+      await dbIns("members", row);
+      setMembers([...members, row]);
+      setNewName("");
+    } catch (e) { setErr(NET_ERR); }
+  };
+
+  const commitEdit = async () => {
+    const n = editText.trim();
+    if (!n) { setErr("名前を入力してください。"); return; }
+    if (members.some((m) => m.id !== editId && m.name === n)) {
+      setErr("同じ名前のメンバーがすでにいます。"); return;
+    }
+    try {
+      await dbUpd("members", editId, { name: n });
+      setMembers(members.map((m) => (m.id === editId ? { ...m, name: n } : m)));
+      setEditId(null);
+      setErr("");
+    } catch (e) { setErr(NET_ERR); }
+  };
+
+  // ===== データの書き出し / 読み込み =====
+  const APP_FORMAT = "mleague-tracker";
+  const FORMAT_VERSION = 1;
+
+  const exportData = () => {
+    const payload = {
+      format: APP_FORMAT,
+      version: FORMAT_VERSION,
+      exportedAt: new Date().toISOString(),
+      members, groups, games,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const d = new Date();
+    const pad = (x) => String(x).padStart(2, "0");
+    a.href = url;
+    a.download = `麻雀成績_${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setIoMsg({ ok: true, text: `${games.length}半荘分を書き出しました。` });
+  };
+
+  const readFile = (file) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const d = JSON.parse(reader.result);
+        if (d.format !== APP_FORMAT) throw new Error("format");
+        if (!Array.isArray(d.members) || !Array.isArray(d.games)) throw new Error("shape");
+        const bad = d.games.some(
+          (g) => !Array.isArray(g.entries) || g.entries.length !== 4 ||
+                 g.entries.some((e) => typeof e.raw !== "number" || typeof e.point !== "number")
+        );
+        if (bad) throw new Error("shape");
+        setConfirmAsk({
+          title: "このデータを読み込みますか？",
+          body: `メンバー ${d.members.length}人 / グループ ${(d.groups || []).length}件 / ${d.games.length}半荘`,
+          note: "全員の共有記録がすべて置きかわります。先に書き出しておくと安心です。",
+          okLabel: "読み込む",
+          onOk: async () => {
+            try {
+              // 旧形式の小数idを整数に振り直す（テーブルのidは整数のため）
+              const mMap = new Map();
+              const nm = d.members.map((m, i) => {
+                const nid = Number.isInteger(m.id) ? m.id : i + 1;
+                mMap.set(m.id, nid);
+                return { id: nid, name: m.name, color: m.color || null };
+              });
+              const ng = (d.groups || []).map((g, i) => ({
+                id: Number.isInteger(g.id) ? g.id : 9000 + i,
+                name: g.name,
+                member_ids: g.memberIds.map((x) => mMap.get(x) ?? x),
+              }));
+              const nga = d.games.map((g) => ({
+                id: g.id,
+                date: g.date,
+                entries: g.entries.map((e) => ({ ...e, memberId: mMap.get(e.memberId) ?? e.memberId })),
+              }));
+              await dbClear("games");
+              await dbClear("groups");
+              await dbClear("members");
+              if (nm.length) await dbIns("members", nm);
+              if (ng.length) await dbIns("groups", ng);
+              if (nga.length) await dbIns("games", nga);
+              await loadAll(false);
+              setEditId(null);
+              setIoMsg({ ok: true, text: `${d.games.length}半荘分を読み込み、全員に共有しました。` });
+            } catch (e) {
+              setIoMsg({ ok: false, text: NET_ERR });
+            }
+          },
+        });
+      } catch (e) {
+        setIoMsg({ ok: false, text: "このファイルは読み込めません。書き出したJSONファイルを選んでください。" });
+      }
+    };
+    reader.onerror = () => setIoMsg({ ok: false, text: "ファイルを開けませんでした。" });
+    reader.readAsText(file);
+  };
+  const playedCount = (id) => games.filter((g) => g.entries.some((e) => e.memberId === id)).length;
+
+  const deleteMember = async (id) => {
+    setErr("");
+    try {
+      await dbDel("members", id);
+      const touched = groups.filter((g) => g.memberIds.includes(id));
+      for (const g of touched) {
+        await dbUpd("groups", g.id, { member_ids: g.memberIds.filter((x) => x !== id) });
+      }
+      setMembers(members.filter((m) => m.id !== id));
+      setGroups(groups.map((g) => ({ ...g, memberIds: g.memberIds.filter((x) => x !== id) })));
+      setSeats(seats.map((s) => (s === id ? null : s)));
+    } catch (e) { setErr(NET_ERR); }
+  };
+
+  // ===== グループ =====
+  const toggleDraft = (id) => {
+    if (groupDraft.includes(id)) setGroupDraft(groupDraft.filter((x) => x !== id));
+    else if (groupDraft.length < 4) setGroupDraft([...groupDraft, id]);
+  };
+
+  const saveGroup = () => {
+    const n = newGroupName.trim();
+    if (!n) return setErr("グループ名を入力してください。");
+    if (groupDraft.length !== 4) return setErr("メンバーを4人選んでください。");
+    setErr("");
+    const row = { id: Date.now(), name: n, memberIds: [...groupDraft] };
+    dbIns("groups", { id: row.id, name: row.name, member_ids: row.memberIds })
+      .then(() => {
+        setGroups([...groups, row]);
+        setNewGroupName("");
+        setGroupDraft([]);
+        setShowGroupForm(false);
+      })
+      .catch(() => setErr(NET_ERR));
+  };
+
+  // ===== 点数入力 =====
+  const filledCount = scores.filter((s) => s.trim() !== "" && s.trim() !== "-" && Number.isFinite(Number(s))).length;
+  const inputTotal = scores.reduce((a, b) => a + (Number(b) || 0), 0);
+  const diff = inputTotal - TOTAL;
+
+  // 3人ぶん入っていれば、残り1人は自動で決まる
+  const autoIndex = useMemo(() => {
+    if (filledCount !== 3) return -1;
+    return scores.findIndex((s) => s.trim() === "" || s.trim() === "-" || !Number.isFinite(Number(s)));
+  }, [scores, filledCount]);
+
+  const autoValue = useMemo(() => {
+    if (autoIndex < 0) return null;
+    return TOTAL - scores.reduce((a, s, i) => (i === autoIndex ? a : a + (Number(s) || 0)), 0);
+  }, [autoIndex, scores]);
+
+  const setScore = (i, v) => {
+    if (v !== "" && !/^-?\d*$/.test(v)) return;
+    const s = [...scores];
+    s[i] = v;
+    setScores(s);
+    // 自動で入れた値は、他の欄を打ち直したら破棄する
+    if (autoFilled >= 0 && autoFilled !== i) {
+      s[autoFilled] = "";
+      setScores([...s]);
+      setAutoFilled(-1);
+    }
+  };
+
+  // 入力欄から離れたときだけ4人目を確定させる（入力途中では計算しない）
+  const handleBlur = () => {
+    if (autoIndex < 0 || autoValue == null) return;
+    const s = [...scores];
+    s[autoIndex] = String(autoValue);
+    setScores(s);
+    setAutoFilled(autoIndex);
+  };
+
+  // ===== 記録 =====
+  const addGame = () => {
+    setErr("");
+    if (seats.some((s) => s == null)) return setErr("4人のメンバーを選んでください。");
+    if (new Set(seats).size !== 4) return setErr("同じメンバーが重複しています。");
+    const nums = scores.map((s) => Number(s));
+    if (scores.some((s) => s.trim() === "" || s.trim() === "-") || nums.some((n) => !Number.isFinite(n)))
+      return setErr("4人分の点数を入力してください。");
+    if (nums.reduce((a, b) => a + b, 0) !== TOTAL)
+      return setErr(`点数の合計が ${TOTAL.toLocaleString()} になりません。`);
+
+    const order = [0, 1, 2, 3].sort((a, b) => nums[b] - nums[a]);
+    const rankOf = {}, bonusOf = {};
+    let i = 0;
+    while (i < 4) {
+      let j = i;
+      while (j + 1 < 4 && nums[order[j + 1]] === nums[order[i]]) j++;
+      const shared = RANK_POINTS.slice(i, j + 1).reduce((a, b) => a + b, 0) / (j - i + 1);
+      for (let k = i; k <= j; k++) {
+        rankOf[order[k]] = i + 1;
+        bonusOf[order[k]] = shared;
+      }
+      i = j + 1;
+    }
+
+    const entries = [0, 1, 2, 3].map((s) => ({
+      memberId: seats[s],
+      rank: rankOf[s],
+      raw: nums[s],
+      point: Math.round(((nums[s] - RETURN) / 1000 + bonusOf[s]) * 10) / 10,
+    }));
+
+    const row = { id: Date.now(), date: gameDate, entries };
+    dbIns("games", row)
+      .then(() => {
+        setGames([...games, row]);
+        setScores(["", "", "", ""]);
+        setAutoFilled(-1);
+        setSelectedDay(gameDate);
+        setTab("stats");
+      })
+      .catch(() => setErr(NET_ERR));
+  };
+
+  const removeGame = (id) => {
+    dbDel("games", id)
+      .then(() => setGames(games.filter((g) => g.id !== id)))
+      .catch(() => setErr(NET_ERR));
+  };
+
+  // ===== 集計 =====
+  const statsFor = (id, gameList) => {
+    const src = gameList || games;
+    const rows = [];
+    src.forEach((g) => {
+      const e = g.entries.find((x) => x.memberId === id);
+      if (e) rows.push({ ...e, date: g.date });
+    });
+    const n = rows.length;
+    if (n === 0)
+      return { n: 0, avgRank: 0, top: 0, last: 0, point: 0, avgPoint: 0, best: 0, worst: 0, ranks: [0, 0, 0, 0], rows: [] };
+    const ranks = [0, 0, 0, 0];
+    let sumRank = 0, sumPoint = 0;
+    rows.forEach((r) => {
+      ranks[r.rank - 1]++;
+      sumRank += r.rank;
+      sumPoint += r.point;
+    });
+    const pts = rows.map((r) => r.point);
+    return {
+      n,
+      avgRank: sumRank / n,
+      top: (ranks[0] / n) * 100,
+      last: (ranks[3] / n) * 100,
+      point: round1(sumPoint),
+      avgPoint: round1(sumPoint / n),
+      best: Math.max(...pts),
+      worst: Math.min(...pts),
+      ranks,
+      rows,
+    };
+  };
+
+  const days = useMemo(() => [...new Set(games.map((g) => g.date))].sort((a, b) => (a < b ? 1 : -1)), [games]);
+
+  useEffect(() => {
+    if (selectedDay == null || !days.includes(selectedDay)) setSelectedDay(days[0] || null);
+  }, [days, selectedDay]);
+
+  const dayGames = useMemo(
+    () => (selectedDay ? games.filter((g) => g.date === selectedDay) : []),
+    [games, selectedDay]
+  );
+
+  const dayMembers = useMemo(() => {
+    const ids = [];
+    dayGames.forEach((g) => g.entries.forEach((e) => { if (!ids.includes(e.memberId)) ids.push(e.memberId); }));
+    return ids;
+  }, [dayGames]);
+
+  const dayStats = useMemo(() => {
+    const map = {};
+    dayMembers.forEach((id) => (map[id] = statsFor(id, dayGames)));
+    return map;
+  }, [dayMembers, dayGames]);
+
+  const allStats = useMemo(() => {
+    const map = {};
+    members.forEach((m) => (map[m.id] = statsFor(m.id)));
+    return map;
+  }, [members, games]);
+
+  // 累計タブ：グループで絞り込む（その4人だけで打った半荘のみ）
+  const totalGames = useMemo(() => {
+    if (totalGroupId == null) return games;
+    const g = groups.find((x) => x.id === totalGroupId);
+    if (!g) return games;
+    const key = [...g.memberIds].sort().join(",");
+    return games.filter((gm) => [...gm.entries.map((e) => e.memberId)].sort().join(",") === key);
+  }, [games, groups, totalGroupId]);
+
+  const totalStats = useMemo(() => {
+    const map = {};
+    members.forEach((m) => (map[m.id] = statsFor(m.id, totalGames)));
+    return map;
+  }, [members, totalGames]);
+
+  const totalDays = useMemo(() => [...new Set(totalGames.map((g) => g.date))].length, [totalGames]);
+
+  const ranked = useMemo(
+    () => members.filter((m) => totalStats[m.id]?.n > 0).sort((a, b) => totalStats[b.id].point - totalStats[a.id].point),
+    [members, totalStats]
+  );
+
+  // 表彰用の最高記録
+  const highlights = useMemo(() => {
+    if (ranked.length === 0) return null;
+    let bestGame = null, worstGame = null;
+    totalGames.forEach((g) =>
+      g.entries.forEach((e) => {
+        if (!bestGame || e.raw > bestGame.raw) bestGame = { ...e, date: g.date };
+        if (!worstGame || e.raw < worstGame.raw) worstGame = { ...e, date: g.date };
+      })
+    );
+    const byTop = [...ranked].sort((a, b) => totalStats[b.id].top - totalStats[a.id].top)[0];
+    const byRank = [...ranked].sort((a, b) => totalStats[a.id].avgRank - totalStats[b.id].avgRank)[0];
+    return { bestGame, worstGame, byTop, byRank };
+  }, [ranked, totalGames, totalStats]);
+
+  // ===== グラフ =====
+  const Chart = ({ ids, gameList }) => {
+    const src = gameList || games;
+    const lines = ids.map((id) => {
+      let acc = 0;
+      const pts = [{ i: 0, v: 0 }];
+      src.forEach((g, gi) => {
+        const e = g.entries.find((x) => x.memberId === id);
+        if (e) {
+          acc += e.point;
+          pts.push({ i: gi + 1, v: round1(acc) });
+        }
+      });
+      return { id, pts, total: round1(acc) };
+    });
+    const all = lines.flatMap((l) => l.pts.map((p) => p.v));
+    if (all.length <= ids.length) return <p style={S.empty}>記録が増えるとここに推移が表示されます。</p>;
+
+    const sorted = [...lines].sort((a, b) => b.total - a.total);
+    const max = Math.max(...all, 10);
+    const min = Math.min(...all, -10);
+    const single = ids.length === 1;
+    const W = 340, H = 205, L = 24, R = single ? 12 : 92, V = 18;
+    const xMax = Math.max(src.length, 1);
+    const x = (i) => L + (i * (W - L - R)) / xMax;
+    const y = (v) => H - V - ((v - min) / (max - min || 1)) * (H - V * 2);
+
+    // 案1: 目盛り線。0を必ず含め、上下にキリのよい線を数本引く
+    const rng = max - min;
+    const rawStep = rng / 4;
+    const mag = Math.pow(10, Math.floor(Math.log10(rawStep || 1)));
+    const norm = rawStep / mag;
+    const niceStep = (norm < 1.5 ? 1 : norm < 3.5 ? 2 : norm < 7.5 ? 5 : 10) * mag;
+    const ticks = [];
+    for (let t = Math.ceil(min / niceStep) * niceStep; t <= max; t += niceStep) {
+      ticks.push(Math.round(t * 10) / 10);
+    }
+    if (!ticks.includes(0) && min < 0 && max > 0) ticks.push(0);
+
+    // 終点ラベルが重ならないよう縦位置をずらす
+    const ends = sorted.map((l) => ({ id: l.id, total: l.total, yv: y(l.pts[l.pts.length - 1].v) }));
+    const LABEL_H = 15;
+    for (let i = 1; i < ends.length; i++) {
+      if (ends[i].yv - ends[i - 1].yv < LABEL_H) ends[i].yv = ends[i - 1].yv + LABEL_H;
+    }
+
+    const uid = single ? `d${ids[0]}` : "t";
+
+    return (
+      <div style={S.chartArea}>
+        <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", display: "block", overflow: "visible" }}>
+          <defs>
+            <filter id={`soft-${uid}`} x="-60%" y="-60%" width="220%" height="220%">
+              <feGaussianBlur stdDeviation="2.4" />
+            </filter>
+          </defs>
+
+          {/* 案1: 罫線。0は金、その他は極薄 */}
+          {ticks.map((t, k) => {
+            const zero = t === 0;
+            return (
+              <g key={k}>
+                <line x1={L} y1={y(t)} x2={W - R} y2={y(t)}
+                  stroke={zero ? "#C9A54A" : "#EAE4D6"} strokeWidth={zero ? 1 : 1}
+                  strokeDasharray={zero ? "none" : "1 4"} opacity={zero ? 0.7 : 1} />
+                <text x={L - 5} y={y(t) + 3} fontSize="8" textAnchor="end"
+                  fill={zero ? "#B8963E" : "#BCB6A6"} fontFamily="ui-monospace, monospace">
+                  {t}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* 折れ線 */}
+          {lines.map((l) => {
+            const pts = l.pts.map((p) => [x(p.i), y(p.v)]);
+            let len = 0;
+            for (let k = 1; k < pts.length; k++) {
+              len += Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]);
+            }
+            return (
+              <g key={l.id}>
+                <polyline className="chart-line" style={{ "--len": `${len || 1}` }}
+                  fill="none" stroke={memberColor(l.id)} strokeWidth="2"
+                  strokeLinejoin="round" strokeLinecap="round"
+                  points={pts.map((p) => `${p[0]},${p[1]}`).join(" ")} />
+                {l.pts.map((p, k) => <circle key={k} cx={x(p.i)} cy={y(p.v)} r="1.8" fill={memberColor(l.id)} />)}
+              </g>
+            );
+          })}
+
+          {/* 案4: 最新地点を光らせる */}
+          {lines.map((l) => {
+            const last = l.pts[l.pts.length - 1];
+            return (
+              <g key={l.id}>
+                <circle cx={x(last.i)} cy={y(last.v)} r="5" fill={memberColor(l.id)}
+                  opacity="0.35" filter={`url(#soft-${uid})`} />
+                <circle cx={x(last.i)} cy={y(last.v)} r={single ? 3.4 : 3}
+                  fill={memberColor(l.id)} stroke={T.paper} strokeWidth="1.4" />
+              </g>
+            );
+          })}
+
+          {/* 案3: 終点を点棒札風のタグに */}
+          {!single && ends.map((e) => {
+            const tw = memberName(e.id).length * 6.6 + String(signed(e.total)).length * 4.2 + 14;
+            return (
+              <g key={e.id}>
+                <line x1={W - R - 3} y1={e.yv} x2={W - R + 3} y2={e.yv} stroke={memberColor(e.id)} strokeWidth="1.6" />
+                <rect x={W - R + 3} y={e.yv - 7.5} width={tw} height="15" rx="4"
+                  fill={T.paper} stroke={memberColor(e.id)} strokeWidth="0.8" opacity="0.96" />
+                <rect x={W - R + 3} y={e.yv - 7.5} width="2.5" height="15" rx="1.2" fill={memberColor(e.id)} />
+                <text x={W - R + 9} y={e.yv + 2.8} fontSize="9" fontWeight="700" fill={memberColor(e.id)}>
+                  {memberName(e.id)}
+                  <tspan fontSize="7.5" fontWeight="400" fill={e.total >= 0 ? PLUS : MINUS}
+                    fontFamily="ui-monospace, monospace"> {signed(e.total)}</tspan>
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    );
+  };
+
+  if (loading) return <div style={S.wrap}><p style={S.empty}>読み込み中…</p></div>;
+
+  if (loadErr) return (
+    <div style={S.page}>
+      <div style={S.wrap}>
+        <div style={S.card} className="card-tex">
+          <p style={{ ...S.empty, marginBottom: 12 }}>
+            記録を読み込めませんでした。電波の届く場所でもう一度お試しください。
+          </p>
+          <button style={S.primary} onClick={async () => { setLoading(true); await loadAll(false); setLoading(false); }}>
+            再読み込み
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ===== 個人ページ =====
+  if (detailId != null) {
+    const st = allStats[detailId] || statsFor(detailId);
+    const c = memberColor(detailId);
+    return (
+      <div style={S.wrap}>
+        <button style={S.back} onClick={() => setDetailId(null)}>← 戻る</button>
+        <div style={{ ...S.card, borderTop: `3px solid ${c}` }} className="tabview card-tex">
+          <h1 style={{ ...S.detailName, color: c }}>{memberName(detailId)}</h1>
+          {st.n === 0 ? <p style={S.empty}>まだ対戦記録がありません。</p> : (
+            <>
+              <div style={S.bigPt}>
+                <span style={S.bigPtLabel}>通算</span>
+                <b style={{ ...S.bigPtValue, color: st.point >= 0 ? PLUS : MINUS }}>{signed(st.point)}</b>
+                <span style={S.bigPtUnit}>pt / {st.n}半荘</span>
+              </div>
+              <div style={S.kpis}>
+                <Kpi label="平均順位" value={st.avgRank.toFixed(2)} />
+                <Kpi label="平均pt" value={signed(st.avgPoint)} color={st.avgPoint >= 0 ? PLUS : MINUS} />
+                <Kpi label="トップ率" value={`${st.top.toFixed(0)}%`} />
+                <Kpi label="ラス率" value={`${st.last.toFixed(0)}%`} />
+              </div>
+              <div style={S.section}>着順の分布</div>
+              {st.ranks.map((cnt, i) => (
+                <div key={i} style={S.rankBarRow}>
+                  <span style={{ ...S.rankBarLabel, color: RANK_INK[i] }}>{i + 1}位</span>
+                  <div style={S.rankBarTrack}>
+                    <div style={{ ...S.rankBarFill, width: `${(cnt / st.n) * 100}%`, background: RANK_INK[i] }} />
+                  </div>
+                  <span style={S.rankBarVal}>{cnt}回 · {((cnt / st.n) * 100).toFixed(0)}%</span>
+                </div>
+              ))}
+              <p style={S.hint}>最高 {signed(st.best)}pt ／ 最低 {signed(st.worst)}pt</p>
+              <div style={S.section}>通算ポイントの推移</div>
+              <Chart ids={[detailId]} />
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  const canSubmit = filledCount === 4 && diff === 0 && !seats.some((s) => s == null);
+
+  return (
+    <div style={S.page}>
+      <div style={S.wrap} className="safe">
+      <header style={S.header}>
+        <div style={S.headerTop}>
+          <div style={S.brandRow}>
+            <span style={S.monogram}>
+              <span style={S.monogramTile}>雀</span>
+            </span>
+            <div>
+              <h1 style={S.h1}>麻雀成績記録</h1>
+              <span style={S.ruleBadge}>
+                <span style={S.ruleBadgeDot} />
+                Mリーグルール
+              </span>
+            </div>
+          </div>
+          <div style={S.tiles}>
+            {[0, 1, 2, 3].map((i) => (
+              <span key={i} style={{ ...S.tile, background: RANK_TILE[i] }} />
+            ))}
+          </div>
+        </div>
+        <div style={S.headerRule}>
+          <span style={S.rulePill}>25000持ち</span>
+          <span style={S.rulePill}>30000返し</span>
+          <span style={S.ruleDivide} />
+          {[["1位", 50], ["2位", 10], ["3位", -10], ["4位", -30]].map(([l, v], i) => (
+            <span key={l} style={S.ruleRank}>
+              <span style={S.ruleRankLabel}>{l}</span>
+              <b style={{ ...S.ruleRankVal, color: RANK_TILE[i] }}>{v > 0 ? `+${v}` : v}</b>
+            </span>
+          ))}
+        </div>
+      </header>
+
+      <nav style={S.tabs}>
+        {[["input", "入力"], ["stats", "成績"], ["total", "累計"], ["members", "メンバー"]].map(([k, l]) => (
+          <button key={k} onClick={() => { setTab(k); setErr(""); }}
+            className="press" style={{ ...S.tab, ...(tab === k ? S.tabOn : {}) }}>{l}</button>
+        ))}
+      </nav>
+
+      {/* ===== 入力 ===== */}
+      {tab === "input" && (
+        <div style={S.card} className="tabview card-tex">
+          {members.length < 4 ? (
+            <>
+              <p style={S.empty}>先にメンバーを4人以上登録してください。</p>
+              <button style={S.primary} onClick={() => setTab("members")}>メンバーを登録する</button>
+            </>
+          ) : (
+            <>
+              {groups.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={S.miniLabel}>グループ</div>
+                  <div style={S.scrollRow}>
+                    {groups.map((g) => {
+                      const on = g.memberIds.every((id, i) => seats[i] === id);
+                      return (
+                        <button key={g.id} onClick={() => { setSeats([...g.memberIds]); setErr(""); }}
+                          style={{ ...S.chip, ...(on ? S.chipOn : {}) }}>
+                          {g.name}
+                          <span style={S.chipSub}>{g.memberIds.map(memberName).join("・")}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div style={S.dateRow}>
+                <span style={S.miniLabel}>対局日</span>
+                <input style={S.dateInput} type="date" value={gameDate} onChange={(e) => setGameDate(e.target.value)} />
+              </div>
+
+              <div style={S.inputHead}>
+                <span>メンバー</span>
+                <span>点数</span>
+              </div>
+
+              {[0, 1, 2, 3].map((i) => {
+                const isAuto = i === autoFilled;
+                return (
+                  <div key={i} style={S.inputRow}>
+                    <select style={S.select} value={seats[i] == null ? "" : seats[i]}
+                      onChange={(e) => {
+                        const s = [...seats];
+                        s[i] = e.target.value === "" ? null : Number(e.target.value);
+                        setSeats(s);
+                      }}>
+                      <option value="">選択</option>
+                      {members.map((m) => (
+                        <option key={m.id} value={m.id} disabled={seats.includes(m.id) && seats[i] !== m.id}>{m.name}</option>
+                      ))}
+                    </select>
+                    <div style={S.scoreWrap}>
+                      <input
+                        style={{
+                          ...S.scoreInput,
+                          color: (Number(scores[i]) || 0) < 0 ? MINUS : INK,
+                          ...(isAuto ? S.scoreAuto : {}),
+                        }}
+                        type="text" inputMode="numeric" pattern="-?[0-9]*"
+                        value={scores[i]} placeholder="25000"
+                        onChange={(e) => setScore(i, e.target.value)}
+                        onBlur={handleBlur}
+                        onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()} />
+                      {isAuto && <span style={S.autoTag}>自動</span>}
+                    </div>
+                    <button style={S.signBtn} title="符号を反転"
+                      onClick={() => {
+                        const t = scores[i].trim();
+                        setScore(i, t === "" || t === "-" ? "-" : t.startsWith("-") ? t.slice(1) : "-" + t);
+                      }}>±</button>
+                  </div>
+                );
+              })}
+
+              <div style={{ ...S.totalBar, background: filledCount === 0 ? "#F5F4F1" : diff === 0 ? "#EAF3EC" : "#FBEBE8" }}>
+                <span style={S.totalLabel}>合計</span>
+                <span style={S.totalNums}>
+                  <b style={{ color: diff === 0 && filledCount > 0 ? PLUS : INK }}>{inputTotal.toLocaleString()}</b>
+                  <span style={{ color: "#9A968E" }}> / {TOTAL.toLocaleString()}</span>
+                </span>
+                {filledCount > 0 && (
+                  <span style={{ ...S.totalDiff, color: diff === 0 ? PLUS : MINUS }}>
+                    {diff === 0 ? "✓" : `${diff > 0 ? "+" : ""}${diff.toLocaleString()}`}
+                  </span>
+                )}
+              </div>
+
+              <p style={S.hint}>3人ぶん入れて欄の外をタップすると、残り1人が自動で入ります。箱下は「±」で符号を反転。</p>
+              {err && <p style={S.err}>{err}</p>}
+              <button className="press" style={{ ...S.primary, ...(canSubmit ? {} : S.primaryOff) }} onClick={addGame}>
+                この半荘を記録する
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ===== 成績 ===== */}
+      {tab === "stats" && (
+        <div style={S.card} className="tabview card-tex">
+          {days.length === 0 ? (
+            <p style={S.empty}>まだ記録がありません。「入力」から始めてください。</p>
+          ) : (
+            <>
+              <div style={S.scrollRow}>
+                {days.map((d) => (
+                  <button key={d} onClick={() => setSelectedDay(d)}
+                    style={{ ...S.chip, ...(selectedDay === d ? S.chipOn : {}) }}>
+                    {formatDay(d)}
+                    <span style={S.chipSub}>{games.filter((g) => g.date === d).length}半荘</span>
+                  </button>
+                ))}
+              </div>
+
+              <div style={S.tableScroll}>
+                <table style={S.gTable}>
+                  <thead>
+                    <tr>
+                      <th style={{ ...S.gTh, ...S.stickyHead }}>#</th>
+                      {dayMembers.map((id) => (
+                        <th key={id} style={S.gTh}>
+                          <span style={{ ...S.headName, background: memberColor(id) }}>{memberName(id)}</span>
+                        </th>
+                      ))}
+                      <th style={{ ...S.gTh, width: 28 }} />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dayGames.map((g, gi) => (
+                      <tr key={g.id}>
+                        <td style={{ ...S.gTd, ...S.sticky }}>{gi + 1}</td>
+                        {dayMembers.map((id) => {
+                          const e = g.entries.find((x) => x.memberId === id);
+                          if (!e) return <td key={id} style={{ ...S.gTd, color: "#DDD9D2" }}>·</td>;
+                          return (
+                            <td key={id} style={{
+                              ...S.gTd,
+                              ...(e.rank === 1 ? S.cellWin : { background: RANK_BG[e.rank - 1] }),
+                            }}>
+                              <span style={{ ...S.cellRank, color: RANK_INK[e.rank - 1] }}>
+                                {e.rank === 1 && <span style={S.crown}>♛</span>}{e.rank}
+                              </span>
+                              <span style={{ ...S.cellPt, color: e.point >= 0 ? PLUS : MINUS }}>{signed(e.point)}</span>
+                              <span style={{ ...S.cellRaw, color: e.raw < 0 ? MINUS : "#8A867E" }}>
+                                {e.raw.toLocaleString()}
+                              </span>
+                            </td>
+                          );
+                        })}
+                        <td style={S.gTd}>
+                          <button style={S.xBtn}
+                            onClick={() => setConfirmAsk({
+                              title: `${gi + 1}半荘目を削除しますか？`,
+                              body: [...g.entries].sort((a, b) => a.rank - b.rank)
+                                .map((e) => `${e.rank}位  ${memberName(e.memberId)}  ${e.raw.toLocaleString()}点  ${signed(e.point)}`)
+                                .join("\n"),
+                              note: "合計ptが再計算されます。",
+                              onOk: () => removeGame(g.id),
+                            })}>×</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td style={{ ...S.gFoot, ...S.stickyFoot, ...S.footLabel }}>合計</td>
+                      {dayMembers.map((id) => {
+                        const st = dayStats[id];
+                        return (
+                          <td key={id} style={{ ...S.gFoot, ...S.footTotal, color: st.point >= 0 ? PLUS : MINUS }}>
+                            {signed(st.point)}
+                          </td>
+                        );
+                      })}
+                      <td style={S.gFoot} />
+                    </tr>
+                    <tr>
+                      <td style={{ ...S.gFoot, ...S.stickyFoot, ...S.footLabel }}>平均</td>
+                      {dayMembers.map((id) => (
+                        <td key={id} style={{ ...S.gFoot, color: "#5A5750" }}>{dayStats[id].avgRank.toFixed(2)}</td>
+                      ))}
+                      <td style={S.gFoot} />
+                    </tr>
+                    <tr>
+                      <td style={{ ...S.gFoot, ...S.stickyFoot, ...S.footLabel }}>着順</td>
+                      {dayMembers.map((id) => (
+                        <td key={id} style={{ ...S.gFoot, fontSize: 12 }}>
+                          {dayStats[id].ranks.map((c, i) => (
+                            <span key={i} style={{ color: c > 0 ? RANK_INK[i] : "#D5D2CB" }}>
+                              {c}{i < 3 && <span style={{ color: "#DDD9D2" }}>·</span>}
+                            </span>
+                          ))}
+                        </td>
+                      ))}
+                      <td style={S.gFoot} />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+              <p style={S.hint}>セルは 着順 / pt / 点数。背景色は着順に対応しています。</p>
+              <div style={S.section}>この日のポイント推移</div>
+              <Chart ids={dayMembers} gameList={dayGames} />
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ===== 累計 ===== */}
+      {tab === "total" && (
+        <div style={S.card} className="tabview card-tex">
+          {groups.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={S.miniLabel}>集計範囲</div>
+              <div style={S.scrollRow}>
+                <button onClick={() => setTotalGroupId(null)}
+                  style={{ ...S.chip, ...(totalGroupId == null ? S.chipOn : {}) }}>
+                  すべて
+                  <span style={S.chipSub}>全{games.length}半荘</span>
+                </button>
+                {groups.map((g) => {
+                  const key = [...g.memberIds].sort().join(",");
+                  const cnt = games.filter((gm) => [...gm.entries.map((e) => e.memberId)].sort().join(",") === key).length;
+                  return (
+                    <button key={g.id} onClick={() => setTotalGroupId(g.id)}
+                      style={{ ...S.chip, ...(totalGroupId === g.id ? S.chipOn : {}) }}>
+                      {g.name}
+                      <span style={S.chipSub}>{cnt}半荘</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {ranked.length === 0 ? (
+            <p style={S.empty}>
+              {totalGroupId == null ? "まだ記録がありません。" : "このグループ4人での対戦記録はまだありません。"}
+            </p>
+          ) : (
+            <>
+              <div style={S.totalHead}>
+                <span style={S.totalHeadMain}>
+                  {totalGroupId == null ? "全体累計" : groups.find((g) => g.id === totalGroupId)?.name}
+                </span>
+                <span style={S.totalHeadSub}>{totalGames.length}半荘 · {totalDays}日</span>
+              </div>
+
+              {/* 順位表 */}
+              <div style={S.section}>ランキング</div>
+              {ranked.map((m, i) => {
+                const st = totalStats[m.id];
+                const medal = i < 3 ? ["#E8C766", "#C7C4BD", "#CD9A6A"][i] : null;
+                return (
+                  <button key={m.id} onClick={() => setDetailId(m.id)} style={S.totalRow} className="press">
+                    <span style={{ ...S.totalRank, ...(medal ? { background: medal, color: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.18)" } : {}) }}>
+                      {i + 1}
+                    </span>
+                    <span style={{ ...S.totalStripe, background: memberColor(m.id) }} />
+                    <span style={S.totalBody}>
+                      <span style={{ ...S.totalName, ...(i === 0 ? { fontSize: 16 } : {}) }}>{m.name}</span>
+                      <span style={S.totalMeta}>
+                        {st.n}半荘 · 平均{st.avgRank.toFixed(2)}位 ·{" "}
+                        {st.ranks.map((c, k) => (
+                          <span key={k} style={{ color: c > 0 ? RANK_INK[k] : "#D5D2CB" }}>
+                            {c}{k < 3 && <span style={{ color: "#DDD9D2" }}>·</span>}
+                          </span>
+                        ))}
+                      </span>
+                    </span>
+                    <span style={S.totalPts}>
+                      <b className={i === 0 ? "pop" : ""}
+                        style={{ ...S.totalPtMain, fontSize: i === 0 ? 26 : 19, color: st.point >= 0 ? PLUS : MINUS }}>
+                        {signed(st.point)}
+                      </b>
+                      <span style={S.totalPtSub}>平均 {signed(st.avgPoint)}</span>
+                    </span>
+                    <span style={S.chevron}>›</span>
+                  </button>
+                );
+              })}
+
+              {/* ハイライト */}
+              {highlights && highlights.bestGame && (
+                <>
+                  <div style={{ ...S.section, marginTop: 24 }}>ハイライト</div>
+                  <div style={S.hlGrid}>
+                    <div style={S.hlCard}>
+                      <span style={S.hlLabel}>最高点</span>
+                      <b style={{ ...S.hlValue, color: PLUS }}>{highlights.bestGame.raw.toLocaleString()}</b>
+                      <span style={S.hlSub}>
+                        {memberName(highlights.bestGame.memberId)} · {formatDay(highlights.bestGame.date)}
+                      </span>
+                    </div>
+                    <div style={S.hlCard}>
+                      <span style={S.hlLabel}>最低点</span>
+                      <b style={{ ...S.hlValue, color: MINUS }}>{highlights.worstGame.raw.toLocaleString()}</b>
+                      <span style={S.hlSub}>
+                        {memberName(highlights.worstGame.memberId)} · {formatDay(highlights.worstGame.date)}
+                      </span>
+                    </div>
+                    <div style={S.hlCard}>
+                      <span style={S.hlLabel}>トップ率</span>
+                      <b style={{ ...S.hlValue, color: RANK_INK[0] }}>
+                        {totalStats[highlights.byTop.id].top.toFixed(0)}%
+                      </b>
+                      <span style={S.hlSub}>{highlights.byTop.name}</span>
+                    </div>
+                    <div style={S.hlCard}>
+                      <span style={S.hlLabel}>平均順位</span>
+                      <b style={{ ...S.hlValue, color: FELT }}>
+                        {totalStats[highlights.byRank.id].avgRank.toFixed(2)}
+                      </b>
+                      <span style={S.hlSub}>{highlights.byRank.name}</span>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div style={{ ...S.section, marginTop: 24 }}>ポイントの推移</div>
+              <Chart ids={ranked.map((m) => m.id)} gameList={totalGames} />
+            </>
+          )}
+        </div>
+      )}
+
+      {tab === "members" && (
+        <>
+          <div style={S.card} className="tabview card-tex">
+            <div style={S.section}>メンバー</div>
+            <div style={S.inputRow}>
+              <input style={S.nameInput} value={newName} placeholder="名前を入力"
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addMember()} />
+              <button style={S.addBtn} onClick={addMember}>追加</button>
+            </div>
+            {err && <p style={S.err}>{err}</p>}
+            {members.length === 0 ? (
+              <p style={S.empty}>よく打つ相手を登録しておくと、毎回選ぶだけで記録できます。</p>
+            ) : (
+              members.map((m) => (
+                <div key={m.id} style={S.memberRow}>
+                  <span style={{ ...S.memberStripe, background: memberColor(m.id) }} />
+                  {editId === m.id ? (
+                    <>
+                      <input style={S.memberInputOn} value={editText} autoFocus
+                        onChange={(e) => setEditText(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditId(null); }} />
+                      <button style={S.editDone} onClick={commitEdit}>保存</button>
+                      <button style={S.editCancel} onClick={() => setEditId(null)}>やめる</button>
+                    </>
+                  ) : (
+                    <>
+                      <span style={S.memberName}>{m.name}</span>
+                      <button style={S.editBtn} title="名前を変更"
+                        onClick={() => { setEditId(m.id); setEditText(m.name); setErr(""); }}>✎</button>
+                      <span style={S.memberCount}>{playedCount(m.id)}半荘</span>
+                    </>
+                  )}
+                  {editId !== m.id && <button style={S.xBtn}
+                    onClick={() => playedCount(m.id) > 0
+                      ? setErr("対戦記録があるメンバーは削除できません。")
+                      : setConfirmAsk({
+                          title: `${m.name} を削除しますか？`,
+                          note: "対戦記録はありません。所属グループからも外れます。",
+                          onOk: () => deleteMember(m.id),
+                        })}>×</button>}
+                </div>
+              ))
+            )}
+          </div>
+
+          <div style={{ ...S.card, marginTop: 12 }} className="card-tex">
+            <div style={S.section}>グループ</div>
+            <p style={S.hint}>いつもの4人を登録すると、入力画面でまとめて呼び出せます。</p>
+
+            {groups.map((g) => (
+              <div key={g.id} style={S.groupRow}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={S.groupName}>{g.name}</div>
+                  <div style={S.groupMembers}>
+                    {g.memberIds.map((id) => (
+                      <span key={id} style={S.groupTag}>
+                        <span style={{ ...S.tagDot, background: memberColor(id) }} />
+                        {memberName(id)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <button style={S.xBtn}
+                  onClick={() => setConfirmAsk({
+                    title: `グループ「${g.name}」を削除しますか？`,
+                    note: "対戦記録はそのまま残ります。",
+                    onOk: () => {
+                              dbDel("groups", g.id)
+                                .then(() => setGroups(groups.filter((x) => x.id !== g.id)))
+                                .catch(() => setErr(NET_ERR));
+                            },
+                  })}>×</button>
+              </div>
+            ))}
+
+            {!showGroupForm ? (
+              <button style={{ ...S.secondary, ...(members.length < 4 ? S.primaryOff : {}) }}
+                onClick={() => { setShowGroupForm(true); setErr(""); setGroupDraft([]); }}
+                disabled={members.length < 4}>
+                {members.length < 4 ? "メンバーが4人以上必要です" : "＋ グループを作る"}
+              </button>
+            ) : (
+              <div style={S.groupForm}>
+                <input style={S.groupNameInput} value={newGroupName}
+                  placeholder="グループ名（例: 金曜メンツ）"
+                  onChange={(e) => setNewGroupName(e.target.value)} />
+                <div style={{ ...S.miniLabel, marginTop: 12 }}>席順に4人選ぶ（{groupDraft.length}/4）</div>
+                <div style={S.pickGrid}>
+                  {members.map((m) => {
+                    const idx = groupDraft.indexOf(m.id);
+                    const on = idx >= 0;
+                    return (
+                      <button key={m.id} onClick={() => toggleDraft(m.id)}
+                        style={{ ...S.pickBtn, ...(on ? { background: memberColor(m.id), color: "#fff", borderColor: memberColor(m.id) } : {}) }}>
+                        {on && <span style={S.pickNum}>{idx + 1}</span>}
+                        {m.name}
+                      </button>
+                    );
+                  })}
+                </div>
+                {err && <p style={S.err}>{err}</p>}
+                <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                  <button style={{ ...S.secondary, flex: 1, marginTop: 0 }}
+                    onClick={() => { setShowGroupForm(false); setErr(""); }}>やめる</button>
+                  <button style={{ ...S.primary, flex: 1, marginTop: 0 }} onClick={saveGroup}>保存</button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div style={{ ...S.card, marginTop: 12 }} className="card-tex">
+            <div style={S.section}>データ <span style={S.verTag}>v3 共有版</span></div>
+            <p style={S.hint}>
+              記録はネット上の共有データベースに保存され、メンバー全員で同じ内容が見られます。
+              念のため、ときどき書き出してバックアップしておくと安心です。
+            </p>
+            <div style={S.ioStat}>
+              <span>メンバー <b style={S.ioNum}>{members.length}</b>人</span>
+              <span>グループ <b style={S.ioNum}>{groups.length}</b>件</span>
+              <span>対戦 <b style={S.ioNum}>{games.length}</b>半荘</span>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button style={{ ...S.secondary, flex: 1, marginTop: 0, ...(games.length === 0 ? S.primaryOff : {}) }}
+                disabled={games.length === 0} onClick={exportData}>
+                書き出す
+              </button>
+              <label style={{ ...S.secondary, flex: 1, marginTop: 0, textAlign: "center" }}>
+                読み込む
+                <input type="file" accept="application/json,.json" style={{ display: "none" }}
+                  onChange={(e) => {
+                    const f = e.target.files[0];
+                    if (f) readFile(f);
+                    e.target.value = "";
+                  }} />
+              </label>
+            </div>
+            {ioMsg && (
+              <p style={{ ...S.ioMsg, color: ioMsg.ok ? PLUS : MINUS }}>{ioMsg.text}</p>
+            )}
+          </div>
+        </>
+      )}
+
+      {confirmAsk && (
+        <div style={S.overlay} onClick={() => setConfirmAsk(null)}>
+          <div style={S.dialog} onClick={(e) => e.stopPropagation()}>
+            <h3 style={S.dialogTitle}>{confirmAsk.title}</h3>
+            {confirmAsk.body && <pre style={S.dialogBody}>{confirmAsk.body}</pre>}
+            {confirmAsk.note && <p style={S.dialogNote}>{confirmAsk.note}</p>}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button style={S.dialogCancel} onClick={() => setConfirmAsk(null)}>キャンセル</button>
+              <button style={S.dialogDelete}
+                onClick={() => { confirmAsk.onOk(); setConfirmAsk(null); }}>{confirmAsk.okLabel || "削除する"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+      </div>
+    </div>
+  );
+}
+
+const round1 = (v) => Math.round(v * 10) / 10;
+const signed = (v) => `${v > 0 ? "+" : ""}${v}`;
+
+const todayISO = () => {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+};
+
+const formatDay = (iso) => {
+  const [, m, d] = iso.split("-");
+  const w = ["日", "月", "火", "水", "木", "金", "土"][new Date(`${iso}T00:00:00`).getDay()];
+  return `${Number(m)}/${Number(d)} ${w}`;
+};
+
+const Kpi = ({ label, value, color }) => (
+  <div style={S.kpi}>
+    <span style={S.kpiL}>{label}</span>
+    <b style={{ ...S.kpiV, ...(color ? { color } : {}) }}>{value}</b>
+  </div>
+);
+
+const NUM = '"SF Mono", "Roboto Mono", Menlo, Consolas, monospace';
+
+const S = {
+  page: {
+    minHeight: "100vh", color: INK,
+    fontFamily: '-apple-system, "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif',
+    background: `radial-gradient(130% 70% at 50% -10%, #2C7159 0%, ${FELT} 46%, #143F31 100%)`,
+    backgroundAttachment: "fixed",
+  },
+  wrap: { maxWidth: 640, margin: "0 auto", padding: "16px 12px 40px" },
+
+  header: { marginBottom: 16, color: "#fff" },
+  headerTop: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  brandRow: { display: "flex", alignItems: "center", gap: 12, minWidth: 0 },
+  monogram: {
+    width: 46, height: 46, borderRadius: 12, flexShrink: 0,
+    background: "linear-gradient(150deg, #FFFFFF 0%, #EDE7DA 100%)",
+    boxShadow: "0 4px 14px rgba(0,0,0,.30), inset 0 1px 0 rgba(255,255,255,.95), inset 0 0 0 1px rgba(184,150,62,.30)",
+    display: "flex", alignItems: "center", justifyContent: "center",
+  },
+  monogramTile: { fontSize: 25, fontWeight: 700, color: FELT, lineHeight: 1, marginTop: 1 },
+  h1: { fontSize: 22, fontWeight: 800, margin: 0, letterSpacing: "0.08em", color: "#fff", textShadow: "0 1px 3px rgba(0,0,0,.28)" },
+  ruleBadge: {
+    display: "inline-flex", alignItems: "center", gap: 5, marginTop: 7,
+    fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", color: "#F0D488",
+    background: "rgba(0,0,0,.26)", border: "1px solid rgba(232,199,102,.40)",
+    padding: "3px 10px", borderRadius: 999,
+  },
+  ruleBadgeDot: { width: 5, height: 5, borderRadius: 3, background: T.goldHi, boxShadow: "0 0 5px #E8C766" },
+  tiles: { display: "flex", gap: 4, flexShrink: 0 },
+  tile: { width: 13, height: 19, borderRadius: 3, display: "block", boxShadow: "inset 0 -2px 0 rgba(0,0,0,.16)" },
+
+  headerRule: {
+    display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap", marginTop: 13,
+    padding: "9px 12px", borderRadius: 11,
+    background: "rgba(0,0,0,.20)", border: "1px solid rgba(255,255,255,.10)",
+  },
+  rulePill: { fontSize: 11, color: "rgba(255,255,255,.80)", fontFamily: NUM, letterSpacing: "0.02em" },
+  ruleDivide: { width: 1, height: 13, background: "rgba(255,255,255,.20)", margin: "0 3px" },
+  ruleRank: { display: "flex", alignItems: "baseline", gap: 3 },
+  ruleRankLabel: { fontSize: 10, color: "rgba(255,255,255,.55)" },
+  ruleRankVal: { fontSize: 12.5, fontFamily: NUM, fontWeight: 700 },
+
+  tabs: { display: "flex", gap: 4, marginBottom: 16, background: "rgba(0,0,0,.24)", padding: 4, borderRadius: 12, border: "1px solid rgba(255,255,255,.08)" },
+  tab: { flex: 1, padding: "10px 2px", border: "none", background: "transparent", color: "rgba(255,255,255,.70)", borderRadius: 8, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit", fontWeight: 600, letterSpacing: "0.02em" },
+  tabOn: { background: T.paper, color: INK, fontWeight: 700, boxShadow: "0 2px 8px rgba(0,0,0,.24)" },
+
+  card: { background: T.paper, borderRadius: T.radius, padding: 16, boxShadow: T.shadow },
+  section: { fontSize: 11.5, fontWeight: 700, color: T.sub, letterSpacing: "0.10em", marginBottom: 12, textTransform: "uppercase" },
+  back: { border: "none", background: "none", color: FELT, fontSize: 14, cursor: "pointer", padding: "2px 0 12px", fontFamily: "inherit", fontWeight: 600 },
+
+  miniLabel: { fontSize: 11, fontWeight: 700, color: T.sub, letterSpacing: "0.06em", marginBottom: 7 },
+  scrollRow: { display: "flex", gap: 7, overflowX: "auto", paddingBottom: 6, marginBottom: 4 },
+  chip: { flexShrink: 0, padding: "8px 13px", border: `1px solid ${T.line}`, background: T.paperHi, color: "#4A4740", borderRadius: 9, fontSize: 13.5, cursor: "pointer", textAlign: "left", lineHeight: 1.35, fontWeight: 600, fontFamily: "inherit" },
+  chipOn: { background: FELT, color: "#fff", borderColor: FELT },
+  chipSub: { display: "block", fontSize: 10, fontWeight: 400, opacity: 0.72, marginTop: 1 },
+
+  dateRow: { display: "flex", alignItems: "center", gap: 10, margin: "4px 0 16px" },
+  dateInput: { padding: "7px 10px", border: `1px solid ${T.line}`, borderRadius: 8, fontSize: 14, color: INK, background: T.paperHi, fontFamily: NUM },
+
+  inputHead: { display: "flex", fontSize: 11, color: T.faint, marginBottom: 6, paddingRight: 52, letterSpacing: "0.04em" },
+  inputRow: { display: "flex", gap: 7, marginBottom: 7, alignItems: "center" },
+  select: { flex: 1, padding: "12px 8px", border: `1px solid ${T.line}`, borderRadius: 9, fontSize: 15, minWidth: 0, background: T.paperHi, color: INK, fontFamily: "inherit" },
+  scoreWrap: { position: "relative", width: 104, flexShrink: 0 },
+  scoreInput: { width: "100%", padding: "12px 9px", border: `1px solid ${T.line}`, borderRadius: 9, fontSize: 16, textAlign: "right", fontFamily: NUM, boxSizing: "border-box", background: T.paperHi },
+  scoreAuto: { background: "#F0F6F2", borderColor: "#BFD9C9" },
+  autoTag: { position: "absolute", top: -6, left: 7, background: FELT, color: "#fff", fontSize: 9, padding: "1px 5px", borderRadius: 4, letterSpacing: "0.04em" },
+  signBtn: { width: 40, height: 44, border: `1px solid ${T.line}`, background: T.paperHi, color: T.sub, borderRadius: 9, fontSize: 16, cursor: "pointer", flexShrink: 0 },
+
+  totalBar: { display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderRadius: 10, fontSize: 14, margin: "12px 0 4px" },
+  totalLabel: { fontSize: 11, color: T.sub, letterSpacing: "0.06em", fontWeight: 700 },
+  totalNums: { flex: 1, fontFamily: NUM, fontSize: 15 },
+  totalDiff: { fontFamily: NUM, fontWeight: 700, fontSize: 15 },
+
+  nameInput: { flex: 1, padding: "11px 12px", border: `1px solid ${T.line}`, borderRadius: 9, fontSize: 15, minWidth: 0, fontFamily: "inherit" },
+  groupNameInput: { width: "100%", padding: "11px 12px", border: `1px solid ${T.line}`, borderRadius: 9, fontSize: 15, boxSizing: "border-box", fontFamily: "inherit" },
+  addBtn: { padding: "11px 18px", background: FELT, color: "#fff", border: "none", borderRadius: 9, fontSize: 15, cursor: "pointer", fontFamily: "inherit" },
+  primary: { width: "100%", padding: 15, background: `linear-gradient(180deg, #2A6B52 0%, ${FELT} 100%)`, color: "#fff", border: "none", borderRadius: 11, fontSize: 16, fontWeight: 700, cursor: "pointer", marginTop: 8, fontFamily: "inherit", boxShadow: "0 4px 14px rgba(20,50,38,.28), inset 0 1px 0 rgba(255,255,255,.14)", letterSpacing: "0.04em" },
+  primaryOff: { background: "#C4CBC4", cursor: "default", boxShadow: "none" },
+  secondary: { width: "100%", padding: 13, background: T.sink, color: "#5A5750", border: "none", borderRadius: 9, fontSize: 15, cursor: "pointer", marginTop: 10, fontFamily: "inherit" },
+  hint: { fontSize: 11.5, color: T.faint, margin: "10px 0 0", lineHeight: 1.6 },
+  err: { fontSize: 13, color: MINUS, margin: "10px 0 0" },
+  empty: { fontSize: 14, color: T.faint, textAlign: "center", padding: "30px 0" },
+
+  tableScroll: { overflowX: "auto", margin: "6px -6px 0" },
+  gTable: { width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: 14 },
+  gTh: { padding: "6px 5px", borderBottom: `1px solid ${T.line}`, textAlign: "center", whiteSpace: "nowrap", background: T.paper },
+  headName: { display: "inline-block", padding: "3px 11px", borderRadius: 11, color: "#fff", fontSize: 12, fontWeight: 700 },
+  gTd: { padding: "7px 5px", borderBottom: `1px solid ${T.lineSoft}`, textAlign: "center", whiteSpace: "nowrap" },
+  sticky: { position: "sticky", left: 0, zIndex: 1, background: T.paper, color: T.faint, fontSize: 11, fontFamily: NUM, boxShadow: `1px 0 0 ${T.lineSoft}` },
+  stickyHead: { position: "sticky", left: 0, zIndex: 2, color: T.faint, fontSize: 10 },
+  stickyFoot: { position: "sticky", left: 0, zIndex: 1, background: T.sink, boxShadow: `1px 0 0 ${T.lineSoft}` },
+  cellRank: { display: "block", fontSize: 10, fontWeight: 700, letterSpacing: "0.04em" },
+  cellWin: { background: "linear-gradient(150deg, #FBEFC8 0%, #F5DFA0 100%)", boxShadow: "inset 0 0 0 1px rgba(184,150,62,.30)" },
+  crown: { fontSize: 9, marginRight: 1, verticalAlign: "1px" },
+  cellPt: { display: "block", fontSize: 16, fontWeight: 700, fontFamily: NUM, lineHeight: 1.25 },
+  cellRaw: { display: "block", fontSize: 11, fontFamily: NUM },
+  gFoot: { padding: "9px 5px", borderTop: `2px solid ${T.line}`, textAlign: "center", background: T.sink, whiteSpace: "nowrap", fontFamily: NUM, fontSize: 13 },
+  footLabel: { fontSize: 10, color: T.faint, textAlign: "left", fontFamily: "inherit", fontWeight: 700, letterSpacing: "0.06em" },
+  footTotal: { fontWeight: 700, fontSize: 17 },
+
+  chartArea: { flex: 1, minWidth: 0 },
+
+  totalHead: { display: "flex", alignItems: "baseline", justifyContent: "space-between", paddingBottom: 12, borderBottom: `1px solid ${T.lineSoft}`, marginBottom: 18 },
+  totalHeadMain: { fontSize: 17, fontWeight: 700, color: INK },
+  totalHeadSub: { fontSize: 11.5, color: T.faint, fontFamily: NUM },
+
+
+
+  hlGrid: { display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 },
+  hlCard: { background: T.sink, borderRadius: 10, padding: "13px 13px 12px", display: "flex", flexDirection: "column", gap: 3, boxShadow: T.goldHair },
+  hlLabel: { fontSize: 10, color: T.faint, letterSpacing: "0.06em", fontWeight: 700 },
+  hlValue: { fontSize: 21, fontFamily: NUM, fontWeight: 700, lineHeight: 1.2 },
+  hlSub: { fontSize: 11, color: T.sub, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+
+  totalRow: { display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "13px 4px", background: "none", border: "none", borderBottom: `1px solid ${T.lineSoft}`, cursor: "pointer", textAlign: "left", fontFamily: "inherit" },
+  totalRank: { width: 20, height: 20, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: T.faint, fontFamily: NUM, flexShrink: 0 },
+  totalStripe: { width: 3, alignSelf: "stretch", borderRadius: 2, flexShrink: 0 },
+  totalBody: { flex: 1, minWidth: 0 },
+  totalName: { display: "block", fontSize: 15.5, fontWeight: 700, color: INK },
+  totalMeta: { display: "block", fontSize: 11.5, color: T.faint, marginTop: 2, fontFamily: NUM },
+  totalPts: { textAlign: "right", flexShrink: 0 },
+  totalPtMain: { display: "block", fontSize: 18, fontWeight: 700, fontFamily: NUM },
+  totalPtSub: { display: "block", fontSize: 10.5, color: T.faint, fontFamily: NUM },
+  chevron: { color: "#D5D2CB", fontSize: 17, flexShrink: 0 },
+
+  detailName: { fontSize: 22, fontWeight: 700, margin: "0 0 14px" },
+  bigPt: { display: "flex", alignItems: "baseline", gap: 8, paddingBottom: 16, borderBottom: `1px solid ${T.lineSoft}`, marginBottom: 16 },
+  bigPtLabel: { fontSize: 11, color: T.faint, letterSpacing: "0.06em", fontWeight: 700 },
+  bigPtValue: { fontSize: 36, fontFamily: NUM, fontWeight: 700, lineHeight: 1 },
+  bigPtUnit: { fontSize: 12, color: T.faint, fontFamily: NUM },
+  kpis: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 7, marginBottom: 22 },
+  kpi: { background: T.sink, borderRadius: 9, padding: "11px 4px", textAlign: "center" },
+  kpiL: { display: "block", fontSize: 10, color: T.faint, marginBottom: 4, letterSpacing: "0.04em" },
+  kpiV: { fontSize: 17, color: INK, display: "block", fontFamily: NUM, fontWeight: 700 },
+  rankBarRow: { display: "flex", alignItems: "center", gap: 9, marginBottom: 7 },
+  rankBarLabel: { fontSize: 11.5, width: 26, fontWeight: 700 },
+  rankBarTrack: { flex: 1, height: 7, background: "#EAE7DE", borderRadius: 4, overflow: "hidden" },
+  rankBarFill: { height: "100%", borderRadius: 4 },
+  rankBarVal: { fontSize: 11, color: T.faint, width: 74, textAlign: "right", fontFamily: NUM },
+
+  memberRow: { display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: `1px solid ${T.lineSoft}` },
+  memberStripe: { width: 3, height: 22, borderRadius: 2, flexShrink: 0 },
+  memberName: { flex: 1, fontSize: 15, minWidth: 0, color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  memberInputOn: { flex: 1, padding: "7px 9px", border: `1px solid ${FELT}`, borderRadius: 7, fontSize: 15, minWidth: 0, background: "#fff", fontFamily: "inherit", color: INK, outline: "none" },
+  editBtn: { border: "none", background: "none", color: "#A9A49B", fontSize: 15, cursor: "pointer", padding: "3px 5px", lineHeight: 1, flexShrink: 0 },
+  editDone: { border: "none", background: FELT, color: "#fff", fontSize: 12.5, fontWeight: 700, borderRadius: 7, padding: "7px 11px", cursor: "pointer", flexShrink: 0, fontFamily: "inherit" },
+  editCancel: { border: "none", background: "none", color: T.sub, fontSize: 12.5, cursor: "pointer", padding: "7px 3px", flexShrink: 0, fontFamily: "inherit" },
+
+  ioStat: { display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12, color: "#6E6A63", padding: "10px 12px", background: T.sink, borderRadius: 9, marginBottom: 12 },
+  verTag: { fontSize: 10, fontWeight: 700, color: FELT, background: "#E6EFE9", padding: "1px 6px", borderRadius: 5, verticalAlign: "2px", letterSpacing: "0.04em" },
+  ioNum: { fontFamily: NUM, fontSize: 14, color: INK, margin: "0 2px" },
+  ioMsg: { fontSize: 12.5, margin: "10px 0 0", lineHeight: 1.5 },
+  memberCount: { fontSize: 11, color: T.faint, whiteSpace: "nowrap", fontFamily: NUM },
+  xBtn: { border: "none", background: "none", color: "#C4C0B8", fontSize: 17, cursor: "pointer", padding: "2px 6px", lineHeight: 1, flexShrink: 0 },
+
+  groupRow: { display: "flex", alignItems: "center", gap: 10, padding: "11px 0", borderBottom: `1px solid ${T.lineSoft}` },
+  groupName: { fontSize: 15, fontWeight: 700 },
+  groupMembers: { display: "flex", flexWrap: "wrap", gap: 9, marginTop: 4 },
+  groupTag: { display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, color: T.sub },
+  tagDot: { width: 7, height: 7, borderRadius: 4, display: "inline-block", flexShrink: 0 },
+  groupForm: { background: T.sink, borderRadius: 10, padding: 14, marginTop: 12 },
+  pickGrid: { display: "flex", flexWrap: "wrap", gap: 6 },
+  pickBtn: { display: "flex", alignItems: "center", gap: 5, padding: "8px 13px", border: `1px solid ${T.line}`, background: T.paperHi, color: "#4A4740", borderRadius: 18, fontSize: 14, cursor: "pointer", fontFamily: "inherit" },
+  pickNum: { fontSize: 9.5, background: "rgba(255,255,255,.32)", borderRadius: 7, padding: "1px 5px", fontFamily: NUM },
+
+  overlay: { position: "fixed", inset: 0, background: "rgba(28,35,33,.5)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, zIndex: 100 },
+  dialog: { background: "#fff", borderRadius: 16, padding: 22, maxWidth: 344, width: "100%", boxShadow: "0 12px 40px rgba(0,0,0,.22)" },
+  dialogTitle: { fontSize: 16, fontWeight: 700, margin: "0 0 12px", lineHeight: 1.45 },
+  dialogBody: { background: T.sink, borderRadius: 9, padding: "11px 13px", fontSize: 12.5, color: "#5A5750", margin: "0 0 12px", fontFamily: NUM, whiteSpace: "pre-wrap", lineHeight: 1.85 },
+  dialogNote: { fontSize: 12, color: T.faint, margin: "0 0 18px", lineHeight: 1.5 },
+  dialogCancel: { flex: 1, padding: 13, background: T.sink, color: "#5A5750", border: "none", borderRadius: 9, fontSize: 15, cursor: "pointer", fontFamily: "inherit" },
+  dialogDelete: { flex: 1, padding: 13, background: MINUS, color: "#fff", border: "none", borderRadius: 9, fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" },
+};
+
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<MLeagueTracker />);
+</script>
+</body>
+</html>
