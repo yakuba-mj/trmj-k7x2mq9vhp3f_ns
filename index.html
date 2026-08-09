@@ -59,7 +59,7 @@ const { useState, useEffect, useMemo } = React;
 
 // ===== 保存先：Supabase（メンバー全員で共有）=====
 const SB_URL = "https://mmbekcjqmtqeadztvaff.supabase.co";
-const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1tYmVrY2pxbXRxZWFkenR2YWZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYyODExOTYsImV4cCI6MjEwMTg1NzE5Nn0.lHbMXBBQgZ8zh6HSI_FNcrnMAKSmIbctMGyYnGKXtXQ";
+const SB_KEY = "sb_publishable_NPwYszvuS_-SKi8KxlBCaA_i3VA6oXE";
 
 const sb = async (path, opts = {}) => {
   const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
