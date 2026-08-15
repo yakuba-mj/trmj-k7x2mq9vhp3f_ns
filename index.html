@@ -7,14 +7,35 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="麻雀成績">
-<title>麻雀成績記録 - Mリーグルール</title>
+<title>麻雀成績ログ - Mリーグルール</title>
+<link rel="apple-touch-icon" href="icon.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@700;900&display=swap" />
+<meta name="apple-mobile-web-app-title" content="麻雀成績ログ" />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%231E5A44'/><rect x='9' y='7' width='14' height='18' rx='2.5' fill='%23FCFBF8'/><circle cx='16' cy='16' r='4' fill='%23B03A2E'/></svg>">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
 <style>
   * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; background: #174737; }
+  html, body { margin: 0; padding: 0; background: #0A0A0C; }
+  /* 背景の意匠：麻の葉の柄と、斜めに差す光。全画面の下地として固定する */
+  body::before {
+    content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    opacity: .13;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='104' viewBox='0 0 60 104'%3E%3Cg fill='none' stroke='%23D8B76A' stroke-width='1'%3E%3Cpath d='M30 0 L60 17.3 L60 52 L30 69.3 L0 52 L0 17.3 Z'/%3E%3Cpath d='M30 0 L30 69.3 M0 17.3 L60 52 M60 17.3 L0 52'/%3E%3C/g%3E%3C/svg%3E");
+    background-size: 60px 104px;
+  }
+  body::after {
+    content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden;
+    background:
+      linear-gradient(102deg, transparent 40%, rgba(216,183,106,.11) 50%, transparent 60%),
+      radial-gradient(60% 30% at 80% 6%, rgba(216,183,106,.13), transparent 70%);
+  }
+  /* 中身は柄より前面に */
+  #root { position: relative; z-index: 1; }
   body { -webkit-text-size-adjust: 100%; }
   input, button, select { font-size: 16px; }
   #boot { color: #fff; font-family: -apple-system, "Hiragino Sans", sans-serif;
@@ -66,8 +87,15 @@ const getPass = () => { try { return localStorage.getItem(PASS_KEY) || ""; } cat
 const savePass = (v) => { try { localStorage.setItem(PASS_KEY, v); } catch (e) {} };
 const clearPass = () => { try { localStorage.removeItem(PASS_KEY); } catch (e) {} };
 
+// ============================================================
+// 開発モード切り替え：
+//   true  = Claude内プレビュー用（Supabaseにつながず、サンプルデータで動く。保存されない）
+//   false = 本番（合言葉つきでSupabaseに保存。GitHubに上げるのはこちら）
+// ============================================================
+const DEV_MODE = false;
+
 // すべての読み書きは合言葉つきの窓口関数(app_exec)を経由する
-const rpc = async (op, payload = {}) => {
+const netRpc = async (op, payload = {}) => {
   const res = await fetch(`${SB_URL}/rest/v1/rpc/app_exec`, {
     method: "POST",
     headers: { apikey: SB_KEY, "Content-Type": "application/json" },
@@ -79,12 +107,146 @@ const rpc = async (op, payload = {}) => {
   return j.data;
 };
 
+// 開発モード用の疑似サーバー：本番のapp_exec関数と同じ動きを画面内で再現する
+const devDb = {
+  members: [
+    { id: 1, name: "あきら", color: null, avatar: "kitsune" },
+    { id: 2, name: "ゆうと", color: null, avatar: "ryu" },
+    { id: 3, name: "かおり", color: null, avatar: "tsuru" },
+    { id: 4, name: "しんじ", color: null, avatar: "tanuki" },
+  ],
+  groups: [{ id: 10, name: "定例メンバー", member_ids: [1, 2, 3, 4] }],
+  seasons: [{ id: 900, name: "第1シーズン", start_date: "2025-09-01", end_date: "2026-02-28", closed: true },
+            { id: 901, name: "第2シーズン", start_date: "2026-03-01", end_date: null, closed: false }],
+  games: [
+    { id: 1735689600000, date: "2025-09-08", entries: [{memberId:2,rank:2,raw:30900,point:10.9,seat:0},{memberId:3,rank:1,raw:57000,point:77,seat:1},{memberId:1,rank:3,raw:12100,point:-27.9,seat:2},{memberId:4,rank:4,raw:0,point:-60,seat:3}] },
+    { id: 1735689600001, date: "2025-09-08", entries: [{memberId:3,rank:2,raw:29200,point:9.2,seat:0},{memberId:1,rank:1,raw:49600,point:69.6,seat:1},{memberId:4,rank:4,raw:1100,point:-58.9,seat:2},{memberId:2,rank:3,raw:20100,point:-19.9,seat:3}] },
+    { id: 1735689600002, date: "2025-09-08", entries: [{memberId:1,rank:3,raw:29600,point:-10.4,seat:0},{memberId:4,rank:1,raw:43700,point:63.7,seat:1},{memberId:2,rank:4,raw:-3500,point:-63.5,seat:2},{memberId:3,rank:2,raw:30200,point:10.2,seat:3}] },
+    { id: 1735689600003, date: "2025-09-22", entries: [{memberId:1,rank:3,raw:27600,point:-12.4,seat:0},{memberId:4,rank:4,raw:900,point:-59.1,seat:1},{memberId:2,rank:2,raw:31500,point:11.5,seat:2},{memberId:3,rank:1,raw:40000,point:60,seat:3}] },
+    { id: 1735689600004, date: "2025-09-22", entries: [{memberId:4,rank:4,raw:1000,point:-59,seat:0},{memberId:2,rank:2,raw:31600,point:11.6,seat:1},{memberId:3,rank:3,raw:15600,point:-24.4,seat:2},{memberId:1,rank:1,raw:51800,point:71.8,seat:3}] },
+    { id: 1735689600005, date: "2025-09-22", entries: [{memberId:2,rank:2,raw:31000,point:11,seat:0},{memberId:3,rank:3,raw:15300,point:-24.7,seat:1},{memberId:1,rank:1,raw:52800,point:72.8,seat:2},{memberId:4,rank:4,raw:900,point:-59.1,seat:3}] },
+    { id: 1735689600006, date: "2025-10-08", entries: [{memberId:2,rank:3,raw:23000,point:-17,seat:0},{memberId:4,rank:2,raw:28500,point:8.5,seat:1},{memberId:1,rank:1,raw:48000,point:68,seat:2},{memberId:3,rank:4,raw:500,point:-59.5,seat:3}] },
+    { id: 1735689600007, date: "2025-10-08", entries: [{memberId:4,rank:4,raw:900,point:-59.1,seat:0},{memberId:1,rank:2,raw:37900,point:17.9,seat:1},{memberId:3,rank:1,raw:39700,point:59.7,seat:2},{memberId:2,rank:3,raw:21500,point:-18.5,seat:3}] },
+    { id: 1735689600008, date: "2025-10-08", entries: [{memberId:1,rank:1,raw:48300,point:68.3,seat:0},{memberId:3,rank:3,raw:19800,point:-20.2,seat:1},{memberId:2,rank:4,raw:1600,point:-58.4,seat:2},{memberId:4,rank:2,raw:30300,point:10.3,seat:3}] },
+    { id: 1735689600009, date: "2025-10-22", entries: [{memberId:1,rank:1,raw:47500,point:67.5,seat:0},{memberId:2,rank:3,raw:19800,point:-20.2,seat:1},{memberId:3,rank:2,raw:30600,point:10.6,seat:2},{memberId:4,rank:4,raw:2100,point:-57.9,seat:3}] },
+    { id: 1735689600010, date: "2025-10-22", entries: [{memberId:2,rank:3,raw:29400,point:-10.6,seat:0},{memberId:3,rank:4,raw:-800,point:-60.8,seat:1},{memberId:4,rank:1,raw:39400,point:59.4,seat:2},{memberId:1,rank:2,raw:32000,point:12,seat:3}] },
+    { id: 1735689600011, date: "2025-10-22", entries: [{memberId:3,rank:1,raw:48500,point:68.5,seat:0},{memberId:4,rank:2,raw:31400,point:11.4,seat:1},{memberId:1,rank:4,raw:-2900,point:-62.9,seat:2},{memberId:2,rank:3,raw:23000,point:-17,seat:3}] },
+    { id: 1735689600012, date: "2025-11-08", entries: [{memberId:1,rank:1,raw:37600,point:57.6,seat:0},{memberId:3,rank:4,raw:4000,point:-56,seat:1},{memberId:4,rank:3,raw:21800,point:-18.2,seat:2},{memberId:2,rank:2,raw:36600,point:16.6,seat:3}] },
+    { id: 1735689600013, date: "2025-11-08", entries: [{memberId:3,rank:4,raw:-1500,point:-61.5,seat:0},{memberId:4,rank:3,raw:17900,point:-22.1,seat:1},{memberId:2,rank:2,raw:31300,point:11.3,seat:2},{memberId:1,rank:1,raw:52300,point:72.3,seat:3}] },
+    { id: 1735689600014, date: "2025-11-08", entries: [{memberId:4,rank:4,raw:1400,point:-58.6,seat:0},{memberId:2,rank:3,raw:19800,point:-20.2,seat:1},{memberId:1,rank:2,raw:38100,point:18.1,seat:2},{memberId:3,rank:1,raw:40700,point:60.7,seat:3}] },
+    { id: 1735689600015, date: "2025-11-22", entries: [{memberId:4,rank:3,raw:22300,point:-17.7,seat:0},{memberId:1,rank:1,raw:51000,point:71,seat:1},{memberId:2,rank:4,raw:-700,point:-60.7,seat:2},{memberId:3,rank:2,raw:27400,point:7.4,seat:3}] },
+    { id: 1735689600016, date: "2025-11-22", entries: [{memberId:1,rank:3,raw:19600,point:-20.4,seat:0},{memberId:2,rank:1,raw:49600,point:69.6,seat:1},{memberId:3,rank:4,raw:300,point:-59.7,seat:2},{memberId:4,rank:2,raw:30500,point:10.5,seat:3}] },
+    { id: 1735689600017, date: "2025-11-22", entries: [{memberId:2,rank:2,raw:29600,point:9.6,seat:0},{memberId:3,rank:1,raw:50600,point:70.6,seat:1},{memberId:4,rank:3,raw:18400,point:-21.6,seat:2},{memberId:1,rank:4,raw:1400,point:-58.6,seat:3}] },
+    { id: 1735689600018, date: "2025-12-08", entries: [{memberId:4,rank:2,raw:27000,point:7,seat:0},{memberId:3,rank:4,raw:1200,point:-58.8,seat:1},{memberId:2,rank:3,raw:22200,point:-17.8,seat:2},{memberId:1,rank:1,raw:49600,point:69.6,seat:3}] },
+    { id: 1735689600019, date: "2025-12-08", entries: [{memberId:3,rank:3,raw:25200,point:-14.8,seat:0},{memberId:2,rank:2,raw:28900,point:8.9,seat:1},{memberId:1,rank:4,raw:5300,point:-54.7,seat:2},{memberId:4,rank:1,raw:40600,point:60.6,seat:3}] },
+    { id: 1735689600020, date: "2025-12-08", entries: [{memberId:2,rank:2,raw:31800,point:11.8,seat:0},{memberId:1,rank:1,raw:47000,point:67,seat:1},{memberId:4,rank:3,raw:22800,point:-17.2,seat:2},{memberId:3,rank:4,raw:-1600,point:-61.6,seat:3}] },
+    { id: 1735689600021, date: "2025-12-22", entries: [{memberId:4,rank:3,raw:20600,point:-19.4,seat:0},{memberId:1,rank:2,raw:28600,point:8.6,seat:1},{memberId:2,rank:4,raw:0,point:-60,seat:2},{memberId:3,rank:1,raw:50800,point:70.8,seat:3}] },
+    { id: 1735689600022, date: "2025-12-22", entries: [{memberId:1,rank:1,raw:54200,point:74.2,seat:0},{memberId:2,rank:4,raw:-1800,point:-61.8,seat:1},{memberId:3,rank:2,raw:25500,point:5.5,seat:2},{memberId:4,rank:3,raw:22100,point:-17.9,seat:3}] },
+    { id: 1735689600023, date: "2025-12-22", entries: [{memberId:2,rank:3,raw:22100,point:-17.9,seat:0},{memberId:3,rank:1,raw:37600,point:57.6,seat:1},{memberId:4,rank:4,raw:4800,point:-55.2,seat:2},{memberId:1,rank:2,raw:35500,point:15.5,seat:3}] },
+    { id: 1735689600024, date: "2026-01-08", entries: [{memberId:4,rank:1,raw:44700,point:64.7,seat:0},{memberId:3,rank:2,raw:30800,point:10.8,seat:1},{memberId:1,rank:4,raw:1400,point:-58.6,seat:2},{memberId:2,rank:3,raw:23100,point:-16.9,seat:3}] },
+    { id: 1735689600025, date: "2026-01-08", entries: [{memberId:3,rank:1,raw:46000,point:66,seat:0},{memberId:1,rank:4,raw:4300,point:-55.7,seat:1},{memberId:2,rank:2,raw:28700,point:8.7,seat:2},{memberId:4,rank:3,raw:21000,point:-19,seat:3}] },
+    { id: 1735689600026, date: "2026-01-08", entries: [{memberId:1,rank:2,raw:35700,point:15.7,seat:0},{memberId:2,rank:3,raw:22900,point:-17.1,seat:1},{memberId:4,rank:4,raw:2200,point:-57.8,seat:2},{memberId:3,rank:1,raw:39200,point:59.2,seat:3}] },
+    { id: 1735689600027, date: "2026-01-22", entries: [{memberId:2,rank:1,raw:44300,point:64.3,seat:0},{memberId:1,rank:4,raw:7600,point:-52.4,seat:1},{memberId:4,rank:3,raw:19300,point:-20.7,seat:2},{memberId:3,rank:2,raw:28800,point:8.8,seat:3}] },
+    { id: 1735689600028, date: "2026-01-22", entries: [{memberId:1,rank:3,raw:19900,point:-20.1,seat:0},{memberId:4,rank:2,raw:29300,point:9.3,seat:1},{memberId:3,rank:4,raw:-1100,point:-61.1,seat:2},{memberId:2,rank:1,raw:51900,point:71.9,seat:3}] },
+    { id: 1735689600029, date: "2026-01-22", entries: [{memberId:4,rank:3,raw:24400,point:-15.6,seat:0},{memberId:3,rank:1,raw:56500,point:76.5,seat:1},{memberId:2,rank:2,raw:28700,point:8.7,seat:2},{memberId:1,rank:4,raw:-9600,point:-69.6,seat:3}] },
+    { id: 1735689600030, date: "2026-02-08", entries: [{memberId:3,rank:4,raw:200,point:-59.8,seat:0},{memberId:4,rank:1,raw:51300,point:71.3,seat:1},{memberId:1,rank:3,raw:16000,point:-24,seat:2},{memberId:2,rank:2,raw:32500,point:12.5,seat:3}] },
+    { id: 1735689600031, date: "2026-02-08", entries: [{memberId:4,rank:4,raw:1300,point:-58.7,seat:0},{memberId:1,rank:3,raw:21000,point:-19,seat:1},{memberId:2,rank:1,raw:49000,point:69,seat:2},{memberId:3,rank:2,raw:28700,point:8.7,seat:3}] },
+    { id: 1735689600032, date: "2026-02-08", entries: [{memberId:1,rank:4,raw:10400,point:-49.6,seat:0},{memberId:2,rank:1,raw:35200,point:55.2,seat:1},{memberId:3,rank:3,raw:23500,point:-16.5,seat:2},{memberId:4,rank:2,raw:30900,point:10.9,seat:3}] },
+    { id: 1735689600033, date: "2026-02-22", entries: [{memberId:1,rank:4,raw:5600,point:-54.4,seat:0},{memberId:2,rank:3,raw:20100,point:-19.9,seat:1},{memberId:3,rank:1,raw:43500,point:63.5,seat:2},{memberId:4,rank:2,raw:30800,point:10.8,seat:3}] },
+    { id: 1735689600034, date: "2026-02-22", entries: [{memberId:2,rank:4,raw:-2600,point:-62.6,seat:0},{memberId:3,rank:3,raw:15600,point:-24.4,seat:1},{memberId:4,rank:2,raw:34500,point:14.5,seat:2},{memberId:1,rank:1,raw:52500,point:72.5,seat:3}] },
+    { id: 1735689600035, date: "2026-02-22", entries: [{memberId:3,rank:2,raw:29500,point:9.5,seat:0},{memberId:4,rank:1,raw:50300,point:70.3,seat:1},{memberId:1,rank:3,raw:21500,point:-18.5,seat:2},{memberId:2,rank:4,raw:-1300,point:-61.3,seat:3}] },
+    { id: 1735689600036, date: "2026-03-08", entries: [{memberId:4,rank:4,raw:-2400,point:-62.4,seat:0},{memberId:1,rank:3,raw:18500,point:-21.5,seat:1},{memberId:2,rank:2,raw:23000,point:3,seat:2},{memberId:3,rank:1,raw:60900,point:80.9,seat:3}] },
+    { id: 1735689600037, date: "2026-03-08", entries: [{memberId:1,rank:3,raw:17600,point:-22.4,seat:0},{memberId:2,rank:2,raw:30800,point:10.8,seat:1},{memberId:3,rank:4,raw:3300,point:-56.7,seat:2},{memberId:4,rank:1,raw:48300,point:68.3,seat:3}] },
+    { id: 1735689600038, date: "2026-03-08", entries: [{memberId:2,rank:2,raw:29900,point:9.9,seat:0},{memberId:3,rank:3,raw:23300,point:-16.7,seat:1},{memberId:4,rank:4,raw:1800,point:-58.2,seat:2},{memberId:1,rank:1,raw:45000,point:65,seat:3}] },
+    { id: 1735689600039, date: "2026-03-22", entries: [{memberId:4,rank:4,raw:-1600,point:-61.6,seat:0},{memberId:3,rank:2,raw:33600,point:13.6,seat:1},{memberId:2,rank:1,raw:38500,point:58.5,seat:2},{memberId:1,rank:3,raw:29500,point:-10.5,seat:3}] },
+    { id: 1735689600040, date: "2026-03-22", entries: [{memberId:3,rank:2,raw:33400,point:13.4,seat:0},{memberId:2,rank:1,raw:42400,point:62.4,seat:1},{memberId:1,rank:3,raw:23300,point:-16.7,seat:2},{memberId:4,rank:4,raw:900,point:-59.1,seat:3}] },
+    { id: 1735689600041, date: "2026-03-22", entries: [{memberId:2,rank:3,raw:21900,point:-18.1,seat:0},{memberId:1,rank:1,raw:47600,point:67.6,seat:1},{memberId:4,rank:4,raw:-900,point:-60.9,seat:2},{memberId:3,rank:2,raw:31400,point:11.4,seat:3}] },
+    { id: 1735689600042, date: "2026-04-08", entries: [{memberId:2,rank:2,raw:30900,point:10.9,seat:0},{memberId:4,rank:4,raw:-1800,point:-61.8,seat:1},{memberId:1,rank:1,raw:50800,point:70.8,seat:2},{memberId:3,rank:3,raw:20100,point:-19.9,seat:3}] },
+    { id: 1735689600043, date: "2026-04-08", entries: [{memberId:4,rank:3,raw:21000,point:-19,seat:0},{memberId:1,rank:4,raw:4700,point:-55.3,seat:1},{memberId:3,rank:1,raw:42700,point:62.7,seat:2},{memberId:2,rank:2,raw:31600,point:11.6,seat:3}] },
+    { id: 1735689600044, date: "2026-04-08", entries: [{memberId:1,rank:4,raw:1500,point:-58.5,seat:0},{memberId:3,rank:1,raw:50600,point:70.6,seat:1},{memberId:2,rank:2,raw:27200,point:7.2,seat:2},{memberId:4,rank:3,raw:20700,point:-19.3,seat:3}] },
+    { id: 1735689600045, date: "2026-04-22", entries: [{memberId:1,rank:1,raw:48100,point:68.1,seat:0},{memberId:2,rank:3,raw:21600,point:-18.4,seat:1},{memberId:3,rank:4,raw:1300,point:-58.7,seat:2},{memberId:4,rank:2,raw:29000,point:9,seat:3}] },
+    { id: 1735689600046, date: "2026-04-22", entries: [{memberId:2,rank:3,raw:18200,point:-21.8,seat:0},{memberId:3,rank:2,raw:28600,point:8.6,seat:1},{memberId:4,rank:4,raw:100,point:-59.9,seat:2},{memberId:1,rank:1,raw:53100,point:73.1,seat:3}] },
+    { id: 1735689600047, date: "2026-04-22", entries: [{memberId:3,rank:1,raw:55200,point:75.2,seat:0},{memberId:4,rank:3,raw:18400,point:-21.6,seat:1},{memberId:1,rank:4,raw:-1300,point:-61.3,seat:2},{memberId:2,rank:2,raw:27700,point:7.7,seat:3}] },
+    { id: 1735689600048, date: "2026-05-08", entries: [{memberId:3,rank:2,raw:30000,point:10,seat:0},{memberId:2,rank:3,raw:23200,point:-16.8,seat:1},{memberId:4,rank:1,raw:56200,point:76.2,seat:2},{memberId:1,rank:4,raw:-9400,point:-69.4,seat:3}] },
+    { id: 1735689600049, date: "2026-05-08", entries: [{memberId:2,rank:2,raw:29200,point:9.2,seat:0},{memberId:4,rank:3,raw:17800,point:-22.2,seat:1},{memberId:1,rank:4,raw:-4900,point:-64.9,seat:2},{memberId:3,rank:1,raw:57900,point:77.9,seat:3}] },
+    { id: 1735689600050, date: "2026-05-08", entries: [{memberId:4,rank:2,raw:28200,point:8.2,seat:0},{memberId:1,rank:3,raw:26800,point:-13.2,seat:1},{memberId:3,rank:1,raw:45300,point:65.3,seat:2},{memberId:2,rank:4,raw:-300,point:-60.3,seat:3}] },
+    { id: 1735689600051, date: "2026-05-22", entries: [{memberId:4,rank:3,raw:21300,point:-18.7,seat:0},{memberId:3,rank:2,raw:28100,point:8.1,seat:1},{memberId:2,rank:1,raw:44400,point:64.4,seat:2},{memberId:1,rank:4,raw:6200,point:-53.8,seat:3}] },
+    { id: 1735689600052, date: "2026-05-22", entries: [{memberId:3,rank:4,raw:4000,point:-56,seat:0},{memberId:2,rank:3,raw:20700,point:-19.3,seat:1},{memberId:1,rank:1,raw:42800,point:62.8,seat:2},{memberId:4,rank:2,raw:32500,point:12.5,seat:3}] },
+    { id: 1735689600053, date: "2026-05-22", entries: [{memberId:2,rank:2,raw:30600,point:10.6,seat:0},{memberId:1,rank:4,raw:11000,point:-49,seat:1},{memberId:4,rank:3,raw:19100,point:-20.9,seat:2},{memberId:3,rank:1,raw:39300,point:59.3,seat:3}] },
+    { id: 1735689600054, date: "2026-06-08", entries: [{memberId:4,rank:2,raw:31300,point:11.3,seat:0},{memberId:1,rank:1,raw:53300,point:73.3,seat:1},{memberId:3,rank:4,raw:-3900,point:-63.9,seat:2},{memberId:2,rank:3,raw:19300,point:-20.7,seat:3}] },
+    { id: 1735689600055, date: "2026-06-08", entries: [{memberId:1,rank:2,raw:29600,point:9.6,seat:0},{memberId:3,rank:3,raw:19400,point:-20.6,seat:1},{memberId:2,rank:4,raw:-1000,point:-61,seat:2},{memberId:4,rank:1,raw:52000,point:72,seat:3}] },
+    { id: 1735689600056, date: "2026-06-08", entries: [{memberId:3,rank:2,raw:27300,point:7.3,seat:0},{memberId:2,rank:1,raw:50400,point:70.4,seat:1},{memberId:4,rank:4,raw:2100,point:-57.9,seat:2},{memberId:1,rank:3,raw:20200,point:-19.8,seat:3}] },
+    { id: 1735689600057, date: "2026-06-22", entries: [{memberId:1,rank:4,raw:-7600,point:-67.6,seat:0},{memberId:2,rank:2,raw:30900,point:10.9,seat:1},{memberId:4,rank:3,raw:20500,point:-19.5,seat:2},{memberId:3,rank:1,raw:56200,point:76.2,seat:3}] },
+    { id: 1735689600058, date: "2026-06-22", entries: [{memberId:2,rank:3,raw:17500,point:-22.5,seat:0},{memberId:4,rank:2,raw:31700,point:11.7,seat:1},{memberId:3,rank:1,raw:49100,point:69.1,seat:2},{memberId:1,rank:4,raw:1700,point:-58.3,seat:3}] },
+    { id: 1735689600059, date: "2026-06-22", entries: [{memberId:4,rank:2,raw:29300,point:9.3,seat:0},{memberId:3,rank:3,raw:22800,point:-17.2,seat:1},{memberId:1,rank:4,raw:6300,point:-53.7,seat:2},{memberId:2,rank:1,raw:41600,point:61.6,seat:3}] },
+    { id: 1735689600060, date: "2026-07-08", entries: [{memberId:2,rank:3,raw:21800,point:-18.2,seat:0},{memberId:1,rank:4,raw:-6800,point:-66.8,seat:1},{memberId:4,rank:1,raw:52400,point:72.4,seat:2},{memberId:3,rank:2,raw:32600,point:12.6,seat:3}] },
+    { id: 1735689600061, date: "2026-07-08", entries: [{memberId:1,rank:3,raw:18700,point:-21.3,seat:0},{memberId:4,rank:2,raw:30900,point:10.9,seat:1},{memberId:3,rank:4,raw:7000,point:-53,seat:2},{memberId:2,rank:1,raw:43400,point:63.4,seat:3}] },
+    { id: 1735689600062, date: "2026-07-08", entries: [{memberId:4,rank:3,raw:22300,point:-17.7,seat:0},{memberId:3,rank:4,raw:-3600,point:-63.6,seat:1},{memberId:2,rank:2,raw:30800,point:10.8,seat:2},{memberId:1,rank:1,raw:50500,point:70.5,seat:3}] },
+    { id: 1735689600063, date: "2026-07-22", entries: [{memberId:1,rank:1,raw:44100,point:64.1,seat:0},{memberId:2,rank:3,raw:18600,point:-21.4,seat:1},{memberId:3,rank:2,raw:35600,point:15.6,seat:2},{memberId:4,rank:4,raw:1700,point:-58.3,seat:3}] },
+    { id: 1735689600064, date: "2026-07-22", entries: [{memberId:2,rank:4,raw:-2600,point:-62.6,seat:0},{memberId:3,rank:2,raw:31400,point:11.4,seat:1},{memberId:4,rank:3,raw:23100,point:-16.9,seat:2},{memberId:1,rank:1,raw:48100,point:68.1,seat:3}] },
+    { id: 1735689600065, date: "2026-07-22", entries: [{memberId:3,rank:4,raw:1000,point:-59,seat:0},{memberId:4,rank:1,raw:49300,point:69.3,seat:1},{memberId:1,rank:3,raw:17200,point:-22.8,seat:2},{memberId:2,rank:2,raw:32500,point:12.5,seat:3}] },
+    { id: 1735689600066, date: "2026-08-08", entries: [{memberId:3,rank:3,raw:18000,point:-22,seat:0},{memberId:4,rank:2,raw:28600,point:8.6,seat:1},{memberId:1,rank:1,raw:54600,point:74.6,seat:2},{memberId:2,rank:4,raw:-1200,point:-61.2,seat:3}] },
+    { id: 1735689600067, date: "2026-08-08", entries: [{memberId:4,rank:4,raw:-1100,point:-61.1,seat:0},{memberId:1,rank:1,raw:48300,point:68.3,seat:1},{memberId:2,rank:3,raw:17300,point:-22.7,seat:2},{memberId:3,rank:2,raw:35500,point:15.5,seat:3}] },
+    { id: 1735689600068, date: "2026-08-08", entries: [{memberId:1,rank:2,raw:26600,point:6.6,seat:0},{memberId:2,rank:3,raw:21300,point:-18.7,seat:1},{memberId:3,rank:1,raw:56600,point:76.6,seat:2},{memberId:4,rank:4,raw:-4500,point:-64.5,seat:3}] },
+    { id: 1735689600069, date: "2026-08-22", entries: [{memberId:1,rank:2,raw:36400,point:16.4,seat:0},{memberId:3,rank:1,raw:45700,point:65.7,seat:1},{memberId:2,rank:3,raw:19100,point:-20.9,seat:2},{memberId:4,rank:4,raw:-1200,point:-61.2,seat:3}] },
+    { id: 1735689600070, date: "2026-08-22", entries: [{memberId:3,rank:1,raw:52600,point:72.6,seat:0},{memberId:2,rank:3,raw:19800,point:-20.2,seat:1},{memberId:4,rank:2,raw:32200,point:12.2,seat:2},{memberId:1,rank:4,raw:-4600,point:-64.6,seat:3}] },
+    { id: 1735689600071, date: "2026-08-22", entries: [{memberId:2,rank:2,raw:22700,point:2.7,seat:0},{memberId:4,rank:1,raw:58500,point:78.5,seat:1},{memberId:1,rank:3,raw:21800,point:-18.2,seat:2},{memberId:3,rank:4,raw:-3000,point:-63,seat:3}] }
+  ],
+};
+
+const devRpc = async (op, payload = {}) => {
+  const p = payload;
+  switch (op) {
+    case "load":
+      return {
+        members: [...devDb.members].sort((a, b) => a.id - b.id),
+        groups: devDb.groups.map((g) => ({ id: g.id, name: g.name, member_ids: g.member_ids })),
+        games: [...devDb.games].sort((a, b) => a.id - b.id),
+        seasons: [...devDb.seasons].sort((a, b) => a.id - b.id),
+      };
+    case "ins_member": devDb.members.push({ id: p.id, name: p.name, color: p.color ?? null }); return {};
+    case "upd_member": devDb.members.forEach((m) => { if (m.id === p.id) m.name = p.name; }); return {};
+    case "upd_avatar": devDb.members.forEach((m) => { if (m.id === p.id) m.avatar = p.avatar || null; }); return {};
+    case "del_member":
+      devDb.members = devDb.members.filter((m) => m.id !== p.id);
+      devDb.groups.forEach((g) => { g.member_ids = g.member_ids.filter((x) => x !== p.id); });
+      return {};
+    case "ins_group": devDb.groups.push({ id: p.id, name: p.name, member_ids: p.member_ids }); return {};
+    case "del_group": devDb.groups = devDb.groups.filter((g) => g.id !== p.id); return {};
+    case "ins_game": devDb.games.push({ id: p.id, date: p.date, entries: p.entries }); return {};
+    case "upd_game":
+      devDb.games = devDb.games.map((g) => (g.id === p.id ? { id: p.id, date: p.date, entries: p.entries } : g));
+      return {};
+    case "ins_season":
+      devDb.seasons.push({ id: p.id, name: p.name, start_date: p.start_date, end_date: p.end_date || null, closed: !!p.closed });
+      return {};
+    case "upd_season":
+      devDb.seasons = devDb.seasons.map((x) => (x.id === p.id
+        ? { id: p.id, name: p.name, start_date: p.start_date, end_date: p.end_date || null, closed: !!p.closed } : x));
+      return {};
+    case "del_season": devDb.seasons = devDb.seasons.filter((x) => x.id !== p.id); return {};
+    case "del_game": devDb.games = devDb.games.filter((g) => g.id !== p.id); return {};
+    case "import":
+      devDb.games = []; devDb.groups = []; devDb.members = [];
+      (p.members || []).forEach((x) => devDb.members.push(x));
+      (p.groups || []).forEach((x) => devDb.groups.push(x));
+      (p.games || []).forEach((x) => devDb.games.push(x));
+      return {};
+    default: throw new Error("op");
+  }
+};
+
+const rpc = DEV_MODE ? devRpc : netRpc;
+
 const dbLoad = async () => {
   const d = await rpc("load");
   return {
     members: d.members,
     groups: d.groups.map((x) => ({ id: x.id, name: x.name, memberIds: x.member_ids })),
     games: d.games,
+    seasons: (d.seasons || []).map((x) => ({
+      id: x.id, name: x.name, start: x.start_date, end: x.end_date, closed: x.closed,
+    })),
   };
 };
 const NET_ERR = "通信に失敗しました。電波を確認してもう一度お試しください。";
@@ -101,45 +263,81 @@ const RANK_POINTS = [50, 10, -10, -30];
 
 // 点棒の色をメンバーカラーに転用
 const COLORS = ["#B03A2E", "#1F618D", "#1E8449", "#6C3483", "#B9770E", "#117864", "#A93226", "#5D6D7E"];
+// 濃緑の面ではメンバーカラーが沈むため、明るくした版を用意する（コントラスト4.5以上）
+const COLORS_D = ["#D08982", "#79A0BB", "#62A980", "#B091BC", "#C6913C", "#64A79A", "#CE8A83", "#919CA7"];
 
 
 // 着順の質感：一位=点棒の金、二位=卓の緑、三位=牌の骨白、四位=差し込みの朱
 const RANK_INK = ["#9A7B18", "#1E6F45", "#6B7280", "#B03A2E"];
 const RANK_BG = ["#FAF2D8", "#EAF2EA", "#F2F0E9", "#FAEAE4"];
+// 着順リボン（成績表のセル内）
+const RANK_RIBBON = [
+  { background: "linear-gradient(180deg, #E3BE63, #B8912F)", color: "#2E2205" },
+  { background: "linear-gradient(180deg, #AFB9B2, #7E8C85)", color: "#fff" },
+  { background: "linear-gradient(180deg, #8C7A5E, #6A5A42)", color: "#fff" },
+  { background: "linear-gradient(180deg, #C4543F, #98392A)", color: "#fff" },
+];
 
 const RANK_TILE = ["#E8C766", "#7FC79B", "#D8D5CE", "#E88C7D"];
 const FELT = "#1E5A44";
 const INK = "#1C2321";
 const PLUS = "#1E6F45";
 const MINUS = "#B03A2E";
+// 濃緑の面ではそのままだと暗くて読めないため、明るい版を用意する
+const PLUS_D = "#9CE6B8";
+const MINUS_D = "#F0A48E";
 
 // ===== デザイントークン（案A 静かな和 + 案B 質感を要所に）=====
 // 和紙(washi)の地・卓の緑(felt)・点棒の金(gold)を役割で固定し、余白は8pt基準で統一する
+// 見出し・人名に使う明朝。Webフォントが届くまでは端末標準の明朝で代替する
+const MIN = "'Noto Serif JP','Hiragino Mincho ProN','Yu Mincho',serif";
+
 const T = {
-  paper: "#FBF9F3",       // カードの地：象牙がかった和紙
-  paperHi: "#FFFFFF",     // 入力欄などの最前面
-  sink: "#F1EEE5",        // 一段沈んだ面（溝・補助情報）
-  line: "#E7E2D6",        // 通常の区切り線
-  lineSoft: "#EFEBE0",    // 弱い区切り線
-  gold: "#B8963E",        // 差し色の金（文字・ヘアライン）
-  goldHi: "#E8C766",      // 明るい金（メダル・強調）
-  ink: INK,
-  sub: "#8A8578",         // 補助テキスト
-  faint: "#B4AE9F",       // さらに薄いテキスト
+  // 面：漆黒の地に、炭色のパネルが浮かぶ
+  panel: "rgba(26, 25, 23, .92)",
+  panelHi: "rgba(34, 32, 29, .94)",
+  sink: "rgba(255, 255, 255, .045)",   // 一段沈んだ面（黒地では「わずかに明るく」で沈みを表す）
+  well: "rgba(0, 0, 0, .40)",
+  paper: "#FBF7EC",                    // 牌・成績表の象牙
+  paperHi: "#FFFFFF",
+  paperLo: "#F0EADA",
+
+  line: "rgba(216,183,106,.32)",
+  lineSoft: "rgba(216,183,106,.16)",
+  gold: "#D8B76A",
+  goldHi: "#F3D68F",
+  goldDk: "#A6842F",
+
+  ink: "#F3EFE4",                      // 黒地の上の主要テキスト
+  inkDark: "#22301F",                  // 象牙の上のテキスト
+  sub: "#B9B5AC",                      // 補助（黒地なので温かみのあるグレー）
+  faint: "#96928A",
+
   felt: FELT,
-  radius: 14,             // カードの角丸
-  radiusSm: 9,            // 部品の角丸
-  // 和紙の上にそっと乗る、拡散した柔らかい影（案Bの物質感を控えめに）
-  shadow: "0 1px 1px rgba(60,50,30,.05), 0 8px 24px rgba(40,55,45,.10)",
-  shadowSoft: "0 1px 2px rgba(60,50,30,.06)",
-  goldHair: "inset 0 0 0 1px rgba(184,150,62,.22)",  // 金のヘアライン
+  radius: 15,
+  radiusSm: 10,
+  shadow: "0 4px 18px rgba(0,0,0,.60)",
+  shadowSoft: "0 2px 8px rgba(0,0,0,.45)",
+  goldHair: "inset 0 0 0 1px rgba(216,183,106,.30)",
 };
 
 function MLeagueTracker() {
   const [members, setMembers] = useState([]);
   const [groups, setGroups] = useState([]);
+  const [seasons, setSeasons] = useState([]);
+  const [period, setPeriod] = useState("all");
+  const [sortKey, setSortKey] = useState("point");
+  const [editGame, setEditGame] = useState(null);
+  const [editScores, setEditScores] = useState(["", "", "", ""]);
+  const [editDate, setEditDate] = useState("");
+  const [showSeasonForm, setShowSeasonForm] = useState(false);
+  const [seasonView, setSeasonView] = useState(null);
+  const [seasonDraft, setSeasonDraft] = useState({ name: "", start: "", end: "" });
   const [games, setGames] = useState([]);
   const [seats, setSeats] = useState([null, null, null, null]);
+  const [step, setStep] = useState(1);
+  const [swapFrom, setSwapFrom] = useState(null);
+  const [dupOk, setDupOk] = useState(false);
   const [scores, setScores] = useState(["", "", "", ""]);
   const [autoFilled, setAutoFilled] = useState(-1);
   const [gameDate, setGameDate] = useState(todayISO());
@@ -152,12 +350,13 @@ function MLeagueTracker() {
   const [detailId, setDetailId] = useState(null);
   const [confirmAsk, setConfirmAsk] = useState(null);
   const [editId, setEditId] = useState(null);
+  const [avatarPick, setAvatarPick] = useState(null);
   const [editText, setEditText] = useState("");
   const [ioMsg, setIoMsg] = useState(null);
   const [tab, setTab] = useState("members");
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState(false);
-  const [needPass, setNeedPass] = useState(() => !getPass());
+  const [needPass, setNeedPass] = useState(() => (DEV_MODE ? false : !getPass()));
   const [passInput, setPassInput] = useState("");
   const [passErr, setPassErr] = useState("");
   const [err, setErr] = useState("");
@@ -168,6 +367,7 @@ function MLeagueTracker() {
       setMembers(d.members);
       setGroups(d.groups);
       setGames(d.games);
+      setSeasons(d.seasons || []);
       setLoadErr(false);
       return d;
     } catch (e) {
@@ -199,17 +399,42 @@ function MLeagueTracker() {
 
   useEffect(() => {
     (async () => {
-      if (getPass()) {
+      if (DEV_MODE || getPass()) {
         const d = await loadAll(false);
         if (d && d.members.length >= 4) setTab("input");
       }
       setLoading(false);
     })();
     // 画面に戻ってきたら最新の記録に同期する
-    const onVis = () => { if (document.visibilityState === "visible" && getPass()) loadAll(true); };
+    const onVis = () => { if (document.visibilityState === "visible" && (DEV_MODE || getPass())) loadAll(true); };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
+
+  const memberAvatar = (id) => members.find((m) => m.id === id)?.avatar || null;
+
+  const Avatar = ({ id, size = 30 }) => {
+    const av = memberAvatar(id);
+    if (!av) {
+      // 未設定のときは頭文字を丸で表示する
+      const nm = memberName(id);
+      return (
+        <span style={{ ...S.avatarFallback, width: size, height: size, fontSize: size * 0.42, background: memberColor(id) }}>
+          {nm ? nm.slice(0, 1) : "?"}
+        </span>
+      );
+    }
+    return <img src={avatarSrc(av)} alt="" style={{ ...S.avatarImg, width: size, height: size }} />;
+  };
+
+  const setAvatar = (id, avId) => {
+    rpc("upd_avatar", { id, avatar: avId || "" })
+      .then(() => {
+        setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, avatar: avId || null } : m)));
+        setAvatarPick(null);
+      })
+      .catch(() => setErr(NET_ERR));
+  };
 
   const memberName = (id) => {
     const m = members.find((x) => x.id === id);
@@ -218,6 +443,12 @@ function MLeagueTracker() {
   const memberColor = (id) => {
     const i = members.findIndex((x) => x.id === id);
     return COLORS[(i < 0 ? 0 : i) % COLORS.length];
+  };
+
+  // 濃緑の面に文字として置くときはこちら（明るい版）
+  const memberColorD = (id) => {
+    const i = members.findIndex((x) => x.id === id);
+    return COLORS_D[(i < 0 ? 0 : i) % COLORS_D.length];
   };
 
   // ===== メンバー =====
@@ -229,10 +460,10 @@ function MLeagueTracker() {
       return;
     }
     setErr("");
-    const row = { id: Date.now(), name: n, color: null };
+    const row = { id: Date.now(), name: n, color: null, avatar: null };
     try {
       await rpc("ins_member", row);
-      setMembers([...members, row]);
+      setMembers((prev) => [...prev, row]);
       setNewName("");
     } catch (e) { setErr(NET_ERR); }
   };
@@ -245,7 +476,7 @@ function MLeagueTracker() {
     }
     try {
       await rpc("upd_member", { id: editId, name: n });
-      setMembers(members.map((m) => (m.id === editId ? { ...m, name: n } : m)));
+      setMembers((prev) => prev.map((m) => (m.id === editId ? { ...m, name: n } : m)));
       setEditId(null);
       setErr("");
     } catch (e) { setErr(NET_ERR); }
@@ -260,7 +491,7 @@ function MLeagueTracker() {
       format: APP_FORMAT,
       version: FORMAT_VERSION,
       exportedAt: new Date().toISOString(),
-      members, groups, games,
+      members, groups, games, seasons,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -281,14 +512,29 @@ function MLeagueTracker() {
         const d = JSON.parse(reader.result);
         if (d.format !== APP_FORMAT) throw new Error("format");
         if (!Array.isArray(d.members) || !Array.isArray(d.games)) throw new Error("shape");
-        const bad = d.games.some(
-          (g) => !Array.isArray(g.entries) || g.entries.length !== 4 ||
-                 g.entries.some((e) => typeof e.raw !== "number" || typeof e.point !== "number")
+        // メンバー・グループ・半荘のいずれかが壊れていたら読み込まない
+        if (!Array.isArray(d.members) || !Array.isArray(d.games)) throw new Error("shape");
+        if (d.groups != null && !Array.isArray(d.groups)) throw new Error("shape");
+        if (d.seasons != null && !Array.isArray(d.seasons)) throw new Error("shape");
+        const badMember = d.members.some(
+          (m) => m == null || typeof m.name !== "string" || m.name.trim() === ""
+        );
+        const badGroup = (d.groups || []).some(
+          (g) => g == null || typeof g.name !== "string" || !Array.isArray(g.memberIds)
+        );
+        const badSeason = (d.seasons || []).some(
+          (x) => x == null || typeof x.name !== "string" || typeof x.start !== "string"
+        );
+        const bad = badMember || badGroup || badSeason || d.games.some(
+          (g) => g == null || !Array.isArray(g.entries) || g.entries.length !== 4 ||
+                 typeof g.date !== "string" ||
+                 g.entries.some((e) => e == null || typeof e.raw !== "number" || typeof e.point !== "number")
         );
         if (bad) throw new Error("shape");
         setConfirmAsk({
           title: "このデータを読み込みますか？",
-          body: `メンバー ${d.members.length}人 / グループ ${(d.groups || []).length}件 / ${d.games.length}半荘`,
+          body: `メンバー ${d.members.length}人 / グループ ${(d.groups || []).length}件 / ${d.games.length}半荘`
+            + ((d.seasons || []).length ? ` / シーズン ${d.seasons.length}件` : ""),
           note: "全員の共有記録がすべて置きかわります。先に書き出しておくと安心です。",
           okLabel: "読み込む",
           onOk: async () => {
@@ -298,7 +544,7 @@ function MLeagueTracker() {
               const nm = d.members.map((m, i) => {
                 const nid = Number.isInteger(m.id) ? m.id : i + 1;
                 mMap.set(m.id, nid);
-                return { id: nid, name: m.name, color: m.color || null };
+                return { id: nid, name: m.name, color: m.color || null, avatar: m.avatar || null };
               });
               const ng = (d.groups || []).map((g, i) => ({
                 id: Number.isInteger(g.id) ? g.id : 9000 + i,
@@ -311,6 +557,16 @@ function MLeagueTracker() {
                 entries: g.entries.map((e) => ({ ...e, memberId: mMap.get(e.memberId) ?? e.memberId })),
               }));
               await rpc("import", { members: nm, groups: ng, games: nga });
+              // シーズンはimportの対象外なので、個別に入れ替える
+              for (const old of seasons) await rpc("del_season", { id: old.id });
+              for (const sn of d.seasons || []) {
+                await rpc("ins_season", {
+                  id: Number.isInteger(sn.id) ? sn.id : Date.now() + Math.floor(Math.random() * 1000),
+                  name: sn.name, start_date: sn.start, end_date: sn.end || null, closed: !!sn.closed,
+                });
+              }
+              setSeasonView(null);
+              setPeriod("all");
               await loadAll(false);
               setEditId(null);
               setIoMsg({ ok: true, text: `${d.games.length}半荘分を読み込み、全員に共有しました。` });
@@ -332,8 +588,8 @@ function MLeagueTracker() {
     setErr("");
     try {
       await rpc("del_member", { id });
-      setMembers(members.filter((m) => m.id !== id));
-      setGroups(groups.map((g) => ({ ...g, memberIds: g.memberIds.filter((x) => x !== id) })));
+      setMembers((prev) => prev.filter((m) => m.id !== id));
+      setGroups((prev) => prev.map((g) => ({ ...g, memberIds: g.memberIds.filter((x) => x !== id) })));
       setSeats(seats.map((s) => (s === id ? null : s)));
     } catch (e) { setErr(NET_ERR); }
   };
@@ -352,7 +608,7 @@ function MLeagueTracker() {
     const row = { id: Date.now(), name: n, memberIds: [...groupDraft] };
     rpc("ins_group", { id: row.id, name: row.name, member_ids: row.memberIds })
       .then(() => {
-        setGroups([...groups, row]);
+        setGroups((prev) => [...prev, row]);
         setNewGroupName("");
         setGroupDraft([]);
         setShowGroupForm(false);
@@ -376,7 +632,8 @@ function MLeagueTracker() {
     return TOTAL - scores.reduce((a, s, i) => (i === autoIndex ? a : a + (Number(s) || 0)), 0);
   }, [autoIndex, scores]);
 
-  const setScore = (i, v) => {
+  const setScore = (i, raw) => {
+    const v = toHalf(raw);
     if (v !== "" && !/^-?\d*$/.test(v)) return;
     const s = [...scores];
     s[i] = v;
@@ -399,7 +656,7 @@ function MLeagueTracker() {
   };
 
   // ===== 記録 =====
-  const addGame = () => {
+  const addGame = (dupOk = false) => {
     setErr("");
     if (seats.some((s) => s == null)) return setErr("4人のメンバーを選んでください。");
     if (new Set(seats).size !== 4) return setErr("同じメンバーが重複しています。");
@@ -409,33 +666,35 @@ function MLeagueTracker() {
     if (nums.reduce((a, b) => a + b, 0) !== TOTAL)
       return setErr(`点数の合計が ${TOTAL.toLocaleString()} になりません。`);
 
-    const order = [0, 1, 2, 3].sort((a, b) => nums[b] - nums[a]);
-    const rankOf = {}, bonusOf = {};
-    let i = 0;
-    while (i < 4) {
-      let j = i;
-      while (j + 1 < 4 && nums[order[j + 1]] === nums[order[i]]) j++;
-      const shared = RANK_POINTS.slice(i, j + 1).reduce((a, b) => a + b, 0) / (j - i + 1);
-      for (let k = i; k <= j; k++) {
-        rankOf[order[k]] = i + 1;
-        bonusOf[order[k]] = shared;
-      }
-      i = j + 1;
-    }
+    const entries = buildEntries(seats, nums);
 
-    const entries = [0, 1, 2, 3].map((s) => ({
-      memberId: seats[s],
-      rank: rankOf[s],
-      raw: nums[s],
-      point: Math.round(((nums[s] - RETURN) / 1000 + bonusOf[s]) * 10) / 10,
-    }));
+    // 同じ日に、同じ4人・同じ点数の記録がすでにないか調べる（二重登録の防止）
+    const key = [...entries].map((e) => `${e.memberId}:${e.raw}`).sort().join("|");
+    const dup = games.some(
+      (g) => g.date === gameDate &&
+        [...g.entries].map((e) => `${e.memberId}:${e.raw}`).sort().join("|") === key
+    );
+    if (dup && !dupOk) {
+      setConfirmAsk({
+        title: "同じ内容の半荘がすでにあります",
+        body: [...entries].sort((a, b) => a.rank - b.rank)
+          .map((e) => `${e.rank}位  ${memberName(e.memberId)}  ${e.raw.toLocaleString()}点`)
+          .join("\n"),
+        note: "他の人がすでに記録したのかもしれません。それでも登録しますか？",
+        okLabel: "登録する",
+        onOk: () => { setDupOk(true); setTimeout(() => addGame(true), 0); },
+      });
+      return;
+    }
 
     const row = { id: Date.now(), date: gameDate, entries };
     rpc("ins_game", row)
       .then(() => {
-        setGames([...games, row]);
+        setGames((prev) => [...prev, row]);
         setScores(["", "", "", ""]);
         setAutoFilled(-1);
+        setDupOk(false);
+        setStep(1);
         setSelectedDay(gameDate);
         setTab("stats");
       })
@@ -444,11 +703,32 @@ function MLeagueTracker() {
 
   const removeGame = (id) => {
     rpc("del_game", { id })
-      .then(() => setGames(games.filter((g) => g.id !== id)))
+      .then(() => setGames((prev) => prev.filter((g) => g.id !== id)))
       .catch(() => setErr(NET_ERR));
   };
 
   // ===== 集計 =====
+  // 家別の成績（席順が記録されている半荘だけを対象にする）
+  const seatStatsFor = (id, gameList) => {
+    const src = gameList || games;
+    const seats = [0, 1, 2, 3].map(() => ({ n: 0, point: 0, sumRank: 0, ranks: [0, 0, 0, 0] }));
+    let has = false;
+    src.forEach((g) => {
+      const e = g.entries.find((x) => x.memberId === id);
+      if (!e || e.seat == null) return;
+      has = true;
+      const c = seats[e.seat];
+      c.n++;
+      c.point = round1(c.point + e.point);
+      c.sumRank += e.rank;
+      c.ranks[e.rank - 1]++;
+    });
+    if (!has) return null;
+    const withN = seats.filter((c) => c.n > 0);
+    const best = withN.length ? Math.max(...withN.map((c) => c.point)) : null;
+    return { seats, best };
+  };
+
   const statsFor = (id, gameList) => {
     const src = gameList || games;
     const rows = [];
@@ -504,20 +784,161 @@ function MLeagueTracker() {
     return map;
   }, [dayMembers, dayGames]);
 
-  const allStats = useMemo(() => {
-    const map = {};
-    members.forEach((m) => (map[m.id] = statsFor(m.id)));
-    return map;
-  }, [members, games]);
+  // ===== 半荘の修正 =====
+  const openEdit = (g) => {
+    setEditGame(g);
+    setEditDate(g.date);
+    setEditScores(g.entries.map((e) => String(e.raw)));
+    setErr("");
+  };
+  const saveEdit = () => {
+    if (!editGame) return;
+    const nums = editScores.map((v) => parseInt(String(v).replace(/[^\d-]/g, ""), 10));
+    if (nums.some((n) => Number.isNaN(n))) { setErr("4人分の点数を入力してください。"); return; }
+    if (nums.reduce((a, b) => a + b, 0) !== TOTAL) { setErr(`合計が${TOTAL.toLocaleString()}点になっていません。`); return; }
+    const ids = editGame.entries.map((e) => e.memberId);
+    const entries = buildEntries(ids, nums);
+    const row = { id: editGame.id, date: editDate, entries };
+    rpc("upd_game", row)
+      .then(() => {
+        setGames((prev) => prev.map((g) => (g.id === row.id ? row : g)));
+        setEditGame(null);
+        setErr("");
+      })
+      .catch(() => setErr(NET_ERR));
+  };
 
-  // 累計タブ：グループで絞り込む（その4人だけで打った半荘のみ）
+  // ===== シーズン =====
+  const saveSeason = () => {
+    const n = seasonDraft.name.trim();
+    if (!n) { setErr("シーズン名を入力してください。"); return; }
+    if (!seasonDraft.start) { setErr("開始日を入力してください。"); return; }
+    const row = { id: Date.now(), name: n, start_date: seasonDraft.start, end_date: seasonDraft.end || null, closed: false };
+    rpc("ins_season", row)
+      .then(() => {
+        setSeasons((prev) => [...prev, { id: row.id, name: n, start: row.start_date, end: row.end_date, closed: false }]);
+        setSeasonDraft({ name: "", start: "", end: "" });
+        setShowSeasonForm(false);
+        setErr("");
+      })
+      .catch(() => setErr(NET_ERR));
+  };
+  const closeSeason = (sn) => {
+    const row = { id: sn.id, name: sn.name, start_date: sn.start, end_date: sn.end || todayISO(), closed: !sn.closed };
+    rpc("upd_season", row)
+      .then(() => setSeasons((prev) => prev.map((x) => (x.id === sn.id
+        ? { ...x, end: row.end_date, closed: row.closed } : x))))
+      .catch(() => setErr(NET_ERR));
+  };
+  const removeSeason = (id) => {
+    rpc("del_season", { id })
+      .then(() => {
+        setSeasons((prev) => prev.filter((x) => x.id !== id));
+        if (period === `s${id}`) setPeriod("all");
+        if (seasonView === id) setSeasonView(null);
+      })
+      .catch(() => setErr(NET_ERR));
+  };
+
+  // ===== シーズンの表彰 =====
+  // 副賞は優勝者を除いて選ぶ（強い人が総取りしないように）
+  const awardsOf = (sn) => {
+    const list = games
+      .filter((g) => g.date >= sn.start && (!sn.end || g.date <= sn.end))
+      .sort((a, b) => (a.date === b.date ? a.id - b.id : a.date < b.date ? -1 : 1));
+    if (list.length === 0) return null;
+    const ids = [...new Set(list.flatMap((g) => g.entries.map((e) => e.memberId)))];
+    const st = {};
+    ids.forEach((id) => {
+      const rows = list.flatMap((g) => g.entries.filter((e) => e.memberId === id));
+      const n = rows.length;
+      if (!n) return;
+      const pts = rows.map((r) => r.point);
+      const ranks = [0, 0, 0, 0];
+      rows.forEach((r) => ranks[r.rank - 1]++);
+      const mean = pts.reduce((a, b) => a + b, 0) / n;
+      st[id] = {
+        n,
+        total: round1(pts.reduce((a, b) => a + b, 0)),
+        avgRank: rows.reduce((a, r) => a + r.rank, 0) / n,
+        top: (ranks[0] / n) * 100,
+        last: (ranks[3] / n) * 100,
+        bestRaw: Math.max(...rows.map((r) => r.raw)),
+        sd: Math.sqrt(pts.reduce((a, x) => a + (x - mean) ** 2, 0) / n),
+      };
+    });
+    const valid = ids.filter((id) => st[id]);
+    if (valid.length === 0) return null;
+    const champ = [...valid].sort((a, b) => st[b].total - st[a].total)[0];
+    const used = new Set([champ]);
+    const take = (f, desc) => {
+      const pool = valid.filter((x) => !used.has(x));
+      const src = pool.length ? pool : valid.filter((x) => x !== champ);
+      if (!src.length) return null;
+      const pick = [...src].sort((a, b) => (desc ? f(st[b]) - f(st[a]) : f(st[a]) - f(st[b])))[0];
+      used.add(pick);
+      return pick;
+    };
+    const standings = [...valid].sort((a, b) => st[b].total - st[a].total);
+    return {
+      n: list.length,
+      st,
+      champ,
+      standings,
+      bestScore: take((x) => x.bestRaw, true),
+      lastAvoid: take((x) => x.last, false),
+      stable: take((x) => x.sd, false),
+    };
+  };
+
+  const openSeasonAward = useMemo(() => seasons.find((x) => x.id === seasonView) || null, [seasons, seasonView]);
+  const seasonAward = useMemo(() => (openSeasonAward ? awardsOf(openSeasonAward) : null), [openSeasonAward, games]);
+  const seasonSummaries = useMemo(() => {
+    const m = {};
+    seasons.forEach((sn) => { m[sn.id] = awardsOf(sn); });
+    return m;
+  }, [seasons, games]);
+
+  // ===== 期間の絞り込み =====
+  const periodOptions = useMemo(() => {
+    const opts = [{ key: "all", label: "全期間" }, { key: "month", label: "今月" }, { key: "year", label: "今年" }, { key: "last10", label: "直近10" }];
+    seasons.forEach((sn) => opts.push({ key: `s${sn.id}`, label: sn.name, season: sn }));
+    return opts;
+  }, [seasons]);
+
+  const inPeriod = (list) => {
+    if (period === "all") return list;
+    if (period === "last10") return list.slice(-10);
+    const now = todayISO();
+    if (period === "month") {
+      const ym = now.slice(0, 7);
+      return list.filter((g) => g.date.slice(0, 7) === ym);
+    }
+    if (period === "year") {
+      const y = now.slice(0, 4);
+      return list.filter((g) => g.date.slice(0, 4) === y);
+    }
+    if (period.startsWith("s")) {
+      const sn = seasons.find((x) => `s${x.id}` === period);
+      if (!sn) return list;
+      return list.filter((g) => g.date >= sn.start && (!sn.end || g.date <= sn.end));
+    }
+    return list;
+  };
+
+  // 累計タブ：グループで絞り込む（その4人だけで打った半荘のみ）＋期間で絞り込む
   const totalGames = useMemo(() => {
-    if (totalGroupId == null) return games;
-    const g = groups.find((x) => x.id === totalGroupId);
-    if (!g) return games;
-    const key = [...g.memberIds].sort().join(",");
-    return games.filter((gm) => [...gm.entries.map((e) => e.memberId)].sort().join(",") === key);
-  }, [games, groups, totalGroupId]);
+    let base = games;
+    if (totalGroupId != null) {
+      const g = groups.find((x) => x.id === totalGroupId);
+      if (g) {
+        const key = [...g.memberIds].sort().join(",");
+        base = games.filter((gm) => [...gm.entries.map((e) => e.memberId)].sort().join(",") === key);
+      }
+    }
+    const sorted = [...base].sort((a, b) => (a.date === b.date ? a.id - b.id : a.date < b.date ? -1 : 1));
+    return inPeriod(sorted);
+  }, [games, groups, totalGroupId, period, seasons]);
 
   const totalStats = useMemo(() => {
     const map = {};
@@ -527,10 +948,50 @@ function MLeagueTracker() {
 
   const totalDays = useMemo(() => [...new Set(totalGames.map((g) => g.date))].length, [totalGames]);
 
-  const ranked = useMemo(
-    () => members.filter((m) => totalStats[m.id]?.n > 0).sort((a, b) => totalStats[b.id].point - totalStats[a.id].point),
-    [members, totalStats]
-  );
+  // 並び替えの基準。avgRank だけは小さいほど良いので昇順
+  const SORTS = [
+    { key: "point", label: "合計pt", get: (x) => x.point, asc: false },
+    { key: "avgRank", label: "平均順位", get: (x) => x.avgRank, asc: true },
+    { key: "top", label: "トップ率", get: (x) => x.top, asc: false },
+    { key: "avgPoint", label: "平均pt", get: (x) => x.avgPoint, asc: false },
+    { key: "avoid", label: "ラス回避率", get: (x) => 100 - x.last, asc: false },
+  ];
+
+  // 並び替えの基準ごとに、4人の平均を境にして良し悪しの色を決める
+  const sortAvg = useMemo(() => {
+    const list = members.filter((m) => totalStats[m.id]?.n > 0).map((m) => totalStats[m.id]);
+    if (list.length === 0) return null;
+    const mean = (f) => list.reduce((a, x) => a + f(x), 0) / list.length;
+    return {
+      point: mean((x) => x.point),
+      avgPoint: mean((x) => x.avgPoint),
+      avgRank: mean((x) => x.avgRank),
+      top: mean((x) => x.top),
+      avoid: mean((x) => 100 - x.last),
+    };
+  }, [members, totalStats]);
+
+  // 選んだ基準での「良い側か」を返す（平均順位だけは小さいほど良い）
+  const isGood = (st) => {
+    if (!sortAvg) return true;
+    if (sortKey === "point") return st.point >= 0;
+    if (sortKey === "avgPoint") return st.avgPoint >= 0;
+    if (sortKey === "avgRank") return st.avgRank <= sortAvg.avgRank;
+    if (sortKey === "top") return st.top >= sortAvg.top;
+    return 100 - st.last >= sortAvg.avoid;
+  };
+
+  const ranked = useMemo(() => {
+    const sorter = SORTS.find((x) => x.key === sortKey) || SORTS[0];
+    return members
+      .filter((m) => totalStats[m.id]?.n > 0)
+      .sort((a, b) => {
+        const va = sorter.get(totalStats[a.id]);
+        const vb = sorter.get(totalStats[b.id]);
+        if (va === vb) return totalStats[b.id].point - totalStats[a.id].point;
+        return sorter.asc ? va - vb : vb - va;
+      });
+  }, [members, totalStats, sortKey]);
 
   // 表彰用の最高記録
   const highlights = useMemo(() => {
@@ -546,6 +1007,86 @@ function MLeagueTracker() {
     const byRank = [...ranked].sort((a, b) => totalStats[a.id].avgRank - totalStats[b.id].avgRank)[0];
     return { bestGame, worstGame, byTop, byRank };
   }, [ranked, totalGames, totalStats]);
+
+  // ===== 記録集（歴代ベスト）=====
+  const records = useMemo(() => {
+    if (totalGames.length === 0) return null;
+
+    // 歴代最高得点・最低得点 トップ5
+    const allEntries = [];
+    totalGames.forEach((g) => g.entries.forEach((e) => allEntries.push({ ...e, date: g.date })));
+    const topRaw = [...allEntries].sort((a, b) => b.raw - a.raw).slice(0, 5);
+    const lowRaw = [...allEntries].sort((a, b) => a.raw - b.raw).slice(0, 5);
+
+    // 1日の最高収支（メンバー×日付でptを合計）
+    const dayMap = {};
+    totalGames.forEach((g) =>
+      g.entries.forEach((e) => {
+        const k = `${g.date}__${e.memberId}`;
+        dayMap[k] = (dayMap[k] || 0) + e.point;
+      })
+    );
+    const dayList = Object.entries(dayMap).map(([k, v]) => {
+      const [date, mid] = k.split("__");
+      return { date, memberId: Number(mid), point: round1(v) };
+    });
+    const bestDay = [...dayList].sort((a, b) => b.point - a.point)[0] || null;
+    const worstDay = [...dayList].sort((a, b) => a.point - b.point)[0] || null;
+
+    // 連続記録（時系列で各メンバーを追う）
+    const seq = {};
+    totalGames.forEach((g) =>
+      g.entries.forEach((e) => {
+        if (!seq[e.memberId]) seq[e.memberId] = [];
+        seq[e.memberId].push(e.rank);
+      })
+    );
+    const streak = (arr, ok) => {
+      let best = 0, cur = 0;
+      arr.forEach((r) => { cur = ok(r) ? cur + 1 : 0; if (cur > best) best = cur; });
+      return best;
+    };
+    const nowStreak = (arr, ok) => {
+      let cur = 0;
+      for (let i = arr.length - 1; i >= 0; i--) { if (ok(arr[i])) cur++; else break; }
+      return cur;
+    };
+    const streaks = Object.entries(seq).map(([mid, arr]) => ({
+      memberId: Number(mid),
+      topRun: streak(arr, (r) => r === 1),
+      renRun: streak(arr, (r) => r <= 2),
+      noLastRun: streak(arr, (r) => r !== 4),
+      nowTop: nowStreak(arr, (r) => r === 1),
+      nowRen: nowStreak(arr, (r) => r <= 2),
+      nowNoLast: nowStreak(arr, (r) => r !== 4),
+    }));
+    const pick = (key) => [...streaks].sort((a, b) => b[key] - a[key])[0] || null;
+
+    // 最大の逆転劇：その日の途中でマイナスに沈んだあと、プラスで終えた幅
+    let comeback = null;
+    const days = [...new Set(totalGames.map((g) => g.date))];
+    days.forEach((d) => {
+      const dg = totalGames.filter((g) => g.date === d);
+      if (dg.length < 2) return;
+      const acc = {}, low = {};
+      dg.forEach((g) =>
+        g.entries.forEach((e) => {
+          acc[e.memberId] = (acc[e.memberId] || 0) + e.point;
+          if (low[e.memberId] == null || acc[e.memberId] < low[e.memberId]) low[e.memberId] = acc[e.memberId];
+        })
+      );
+      Object.keys(acc).forEach((mid) => {
+        // どん底がマイナスで、最終的にプラスで終えた場合だけ「逆転」と数える
+        if (low[mid] >= 0 || acc[mid] <= 0) return;
+        const gain = round1(acc[mid] - low[mid]);
+        if (!comeback || gain > comeback.gain) {
+          comeback = { memberId: Number(mid), date: d, gain, from: round1(low[mid]), final: round1(acc[mid]) };
+        }
+      });
+    });
+
+    return { topRaw, lowRaw, bestDay, worstDay, streaks, pick, comeback };
+  }, [totalGames]);
 
   // ===== グラフ =====
   const Chart = ({ ids, gameList }) => {
@@ -586,11 +1127,24 @@ function MLeagueTracker() {
     }
     if (!ticks.includes(0) && min < 0 && max > 0) ticks.push(0);
 
-    // 終点ラベルが重ならないよう縦位置をずらす
-    const ends = sorted.map((l) => ({ id: l.id, total: l.total, yv: y(l.pts[l.pts.length - 1].v) }));
-    const LABEL_H = 15;
+    // 終点ラベルの縦位置を決める。ey=線の実際の終点、yv=牌の位置
+    // 重なったところだけずらし、離れている牌は終点の真横に留める
+    const ends = sorted.map((l) => {
+      const ey = y(l.pts[l.pts.length - 1].v);
+      return { id: l.id, total: l.total, ey, yv: ey };
+    });
+    const LABEL_H = 20;
     for (let i = 1; i < ends.length; i++) {
       if (ends[i].yv - ends[i - 1].yv < LABEL_H) ends[i].yv = ends[i - 1].yv + LABEL_H;
+    }
+    // 下端からはみ出す場合は、押し出された牌の連なりだけを下から順に持ち上げる
+    if (ends.length) {
+      const last = ends.length - 1;
+      if (ends[last].yv > H - 10) ends[last].yv = H - 10;
+      for (let i = last - 1; i >= 0; i--) {
+        if (ends[i + 1].yv - ends[i].yv < LABEL_H) ends[i].yv = ends[i + 1].yv - LABEL_H;
+        else break;
+      }
     }
 
     const uid = single ? `d${ids[0]}` : "t";
@@ -602,6 +1156,13 @@ function MLeagueTracker() {
             <filter id={`soft-${uid}`} x="-60%" y="-60%" width="220%" height="220%">
               <feGaussianBlur stdDeviation="2.4" />
             </filter>
+            <linearGradient id={`hai-${uid}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#FFFFFF" />
+              <stop offset="100%" stopColor="#EDE6D4" />
+            </linearGradient>
+            <filter id={`hs-${uid}`} x="-40%" y="-40%" width="180%" height="180%">
+              <feDropShadow dx="0" dy="1.2" stdDeviation="1.2" floodColor="#3C321E" floodOpacity="0.25" />
+            </filter>
           </defs>
 
           {/* 案1: 罫線。0は金、その他は極薄 */}
@@ -610,10 +1171,10 @@ function MLeagueTracker() {
             return (
               <g key={k}>
                 <line x1={L} y1={y(t)} x2={W - R} y2={y(t)}
-                  stroke={zero ? "#C9A54A" : "#EAE4D6"} strokeWidth={zero ? 1 : 1}
+                  stroke={zero ? "#D8B76A" : "rgba(216,183,106,.20)"} strokeWidth={zero ? 1.2 : 1}
                   strokeDasharray={zero ? "none" : "1 4"} opacity={zero ? 0.7 : 1} />
                 <text x={L - 5} y={y(t) + 3} fontSize="8" textAnchor="end"
-                  fill={zero ? "#B8963E" : "#BCB6A6"} fontFamily="ui-monospace, monospace">
+                  fill={zero ? "#D8B76A" : "#8FB0A2"} fontFamily="ui-monospace, monospace">
                   {t}
                 </text>
               </g>
@@ -633,7 +1194,9 @@ function MLeagueTracker() {
                   fill="none" stroke={memberColor(l.id)} strokeWidth="2"
                   strokeLinejoin="round" strokeLinecap="round"
                   points={pts.map((p) => `${p[0]},${p[1]}`).join(" ")} />
-                {l.pts.map((p, k) => <circle key={k} cx={x(p.i)} cy={y(p.v)} r="1.8" fill={memberColor(l.id)} />)}
+                {/* 半荘が増えて点が密になったら、点は省いて線だけにする */}
+                {(W - L - R) / Math.max(src.length, 1) >= 3 &&
+                  l.pts.map((p, k) => <circle key={k} cx={x(p.i)} cy={y(p.v)} r="1.8" fill={memberColor(l.id)} />)}
               </g>
             );
           })}
@@ -651,19 +1214,24 @@ function MLeagueTracker() {
             );
           })}
 
-          {/* 案3: 終点を点棒札風のタグに */}
+          {/* 終点ラベル：象牙の牌に名前を刻む */}
           {!single && ends.map((e) => {
-            const tw = memberName(e.id).length * 6.6 + String(signed(e.total)).length * 4.2 + 14;
+            const nm = memberName(e.id);
+            const val = signed(e.total);
+            // 全角と半角で文字幅が違うため、区別して札の幅を計算する
+            const fw = [...nm].filter((ch) => ch.charCodeAt(0) > 255).length;
+            const hw = nm.length - fw;
+            const tw = 9 + fw * 10 + hw * 5.5 + 4 + String(val).length * 5.6 + 7;
             return (
               <g key={e.id}>
-                <line x1={W - R - 3} y1={e.yv} x2={W - R + 3} y2={e.yv} stroke={memberColor(e.id)} strokeWidth="1.6" />
-                <rect x={W - R + 3} y={e.yv - 7.5} width={tw} height="15" rx="4"
-                  fill={T.paper} stroke={memberColor(e.id)} strokeWidth="0.8" opacity="0.96" />
-                <rect x={W - R + 3} y={e.yv - 7.5} width="2.5" height="15" rx="1.2" fill={memberColor(e.id)} />
-                <text x={W - R + 9} y={e.yv + 2.8} fontSize="9" fontWeight="700" fill={memberColor(e.id)}>
-                  {memberName(e.id)}
-                  <tspan fontSize="7.5" fontWeight="400" fill={e.total >= 0 ? PLUS : MINUS}
-                    fontFamily="ui-monospace, monospace"> {signed(e.total)}</tspan>
+                <line x1={W - R - 2} y1={e.ey} x2={W - R + 3} y2={e.yv} stroke={memberColor(e.id)} strokeWidth="1.4" />
+                <rect x={W - R + 3} y={e.yv - 9} width={tw} height="18" rx="4.5"
+                  fill={`url(#hai-${uid})`} filter={`url(#hs-${uid})`} />
+                <rect x={W - R + 3} y={e.yv - 9} width="3.5" height="18" rx="1.7" fill={memberColor(e.id)} />
+                <text x={W - R + 12} y={e.yv + 3.4} fontSize="9.5" fontWeight="700" fill={INK}>
+                  {nm}
+                  <tspan dx="4" fontSize="9" fontWeight="400" fill={e.total >= 0 ? PLUS : MINUS}
+                    fontFamily="ui-monospace, monospace">{val}</tspan>
                 </text>
               </g>
             );
@@ -684,8 +1252,8 @@ function MLeagueTracker() {
             <span style={{ ...S.monogram, display: "inline-flex", margin: "0 auto" }}>
               <span style={S.monogramTile}>雀</span>
             </span>
-            <h1 style={{ fontSize: 19, fontWeight: 800, margin: "14px 0 4px", color: INK, letterSpacing: "0.06em" }}>
-              麻雀成績記録
+            <h1 style={{ fontSize: 20, fontWeight: 700, margin: "14px 0 4px", color: "#F0E6CC", letterSpacing: "0.10em", fontFamily: MIN }}>
+              麻雀成績ログ
             </h1>
             <p style={{ ...S.hint, marginBottom: 20 }}>メンバー共有の記録帳です。合言葉を入力してください。</p>
           </div>
@@ -724,23 +1292,33 @@ function MLeagueTracker() {
 
   // ===== 個人ページ =====
   if (detailId != null) {
-    const st = allStats[detailId] || statsFor(detailId);
+    // 累計タブで期間を絞っているときは、個人ページも同じ期間で見せる
+    const st = statsFor(detailId, totalGames);
+    const periodLabel = period === "all" ? null : periodOptions.find((o) => o.key === period)?.label;
     const c = memberColor(detailId);
     return (
       <div style={S.wrap}>
         <button style={S.back} onClick={() => setDetailId(null)}>← 戻る</button>
         <div style={{ ...S.card, borderTop: `3px solid ${c}` }} className="tabview card-tex">
-          <h1 style={{ ...S.detailName, color: c }}>{memberName(detailId)}</h1>
-          {st.n === 0 ? <p style={S.empty}>まだ対戦記録がありません。</p> : (
+          <h1 style={{ ...S.detailName, color: c, display: "flex", alignItems: "center", gap: 10, justifyContent: "center" }}>
+            <Avatar id={detailId} size={38} />
+            {memberName(detailId)}
+            {periodLabel && <span style={S.periodTag}>{periodLabel}</span>}
+          </h1>
+          {st.n === 0 ? (
+            <p style={S.empty}>
+              {periodLabel ? `${periodLabel}の記録はありません。` : "まだ対戦記録がありません。"}
+            </p>
+          ) : (
             <>
               <div style={S.bigPt}>
                 <span style={S.bigPtLabel}>通算</span>
-                <b style={{ ...S.bigPtValue, color: st.point >= 0 ? PLUS : MINUS }}>{signed(st.point)}</b>
+                <b style={{ ...S.bigPtValue, color: st.point >= 0 ? PLUS_D : MINUS_D }}>{signed(st.point)}</b>
                 <span style={S.bigPtUnit}>pt / {st.n}半荘</span>
               </div>
               <div style={S.kpis}>
                 <Kpi label="平均順位" value={st.avgRank.toFixed(2)} />
-                <Kpi label="平均pt" value={signed(st.avgPoint)} color={st.avgPoint >= 0 ? PLUS : MINUS} />
+                <Kpi label="平均pt" value={signed(st.avgPoint)} color={st.avgPoint >= 0 ? PLUS_D : MINUS_D} />
                 <Kpi label="トップ率" value={`${st.top.toFixed(0)}%`} />
                 <Kpi label="ラス率" value={`${st.last.toFixed(0)}%`} />
               </div>
@@ -755,8 +1333,60 @@ function MLeagueTracker() {
                 </div>
               ))}
               <p style={S.hint}>最高 {signed(st.best)}pt ／ 最低 {signed(st.worst)}pt</p>
+
+              {/* 家別の成績 */}
+              {(() => {
+                const ss = seatStatsFor(detailId, totalGames);
+                if (!ss) return null;
+                return (
+                  <>
+                    <div style={S.section}>家別の着順分布</div>
+                    {ss.seats.map((c, i) => (
+                      <div key={i} style={S.seatStatRow}>
+                        <span style={{ ...S.seatStatName, ...(i === 0 ? S.seatStatNameE : {}) }}>{WINDS[i]}家</span>
+                        {c.n === 0 ? (
+                          <>
+                            <div style={{ ...S.seatStatBar, background: T.sink }} />
+                            <span style={S.seatStatNone}>—</span>
+                          </>
+                        ) : (
+                          <>
+                            <div style={S.seatStatBar}>
+                              {(() => {
+                                let left = 0;
+                                return c.ranks.map((cnt, r) => {
+                                  const w = (cnt / c.n) * 100;
+                                  const seg = (
+                                    <div key={r} style={{
+                                      ...S.seatStatSeg, left: `${left}%`, width: `${w}%`,
+                                      background: RANK_INK[r],
+                                    }}>
+                                      {w >= 14 ? `${Math.round(w)}` : ""}
+                                    </div>
+                                  );
+                                  left += w;
+                                  return seg;
+                                });
+                              })()}
+                            </div>
+                            <span style={{ ...S.seatStatPt, color: c.point >= 0 ? PLUS_D : MINUS_D }}>
+                              {signed(c.point)}
+                              {ss.best != null && c.point === ss.best && c.point > 0 && <span style={S.seatStatBest}>◎</span>}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                    <p style={S.hint}>
+                      帯は着順の内訳（金＝1位・緑＝2位・骨白＝3位・朱＝4位）。右は席ごとの合計ptで、
+                      一番稼いでいる席に◎が付きます。
+                    </p>
+                  </>
+                );
+              })()}
+
               <div style={S.section}>通算ポイントの推移</div>
-              <Chart ids={[detailId]} />
+              <Chart ids={[detailId]} gameList={totalGames} />
             </>
           )}
         </div>
@@ -775,19 +1405,12 @@ function MLeagueTracker() {
             <span style={S.monogram}>
               <span style={S.monogramTile}>雀</span>
             </span>
-            <div>
-              <h1 style={S.h1}>麻雀成績記録</h1>
-              <span style={S.ruleBadge}>
-                <span style={S.ruleBadgeDot} />
-                Mリーグルール
-              </span>
-            </div>
+            <h1 style={S.h1}>麻雀成績ログ</h1>
           </div>
-          <div style={S.tiles}>
-            {[0, 1, 2, 3].map((i) => (
-              <span key={i} style={{ ...S.tile, background: RANK_TILE[i] }} />
-            ))}
-          </div>
+          <span style={S.ruleBadge}>
+            <span style={S.ruleBadgeDot} />
+            Mリーグルール
+          </span>
         </div>
         <div style={S.headerRule}>
           <span style={S.rulePill}>25000持ち</span>
@@ -809,6 +1432,12 @@ function MLeagueTracker() {
         ))}
       </nav>
 
+      {DEV_MODE && (
+        <p style={{ margin: "0 0 12px", fontSize: 11, textAlign: "center", color: "rgba(255,255,255,.72)" }}>
+          プレビュー版 — 動作確認用のサンプル記録です。閉じると元に戻ります
+        </p>
+      )}
+
       {/* ===== 入力 ===== */}
       {tab === "input" && (
         <div style={S.card} className="tabview card-tex">
@@ -819,90 +1448,187 @@ function MLeagueTracker() {
             </>
           ) : (
             <>
-              {groups.length > 0 && (
-                <div style={{ marginBottom: 16 }}>
-                  <div style={S.miniLabel}>グループ</div>
-                  <div style={S.scrollRow}>
-                    {groups.map((g) => {
-                      const on = g.memberIds.every((id, i) => seats[i] === id);
+              {/* 進捗 */}
+              <div style={S.stepBar}>
+                {[["メンバー", 1], ["座り順", 2], ["点数", 3]].map(([label, n]) => (
+                  <div key={n} style={{
+                    ...S.stepChip,
+                    ...(step === n ? S.stepChipOn : step > n ? S.stepChipDone : {}),
+                  }}>
+                    <span style={S.stepNo}>STEP {n}</span>
+                    {label}
+                  </div>
+                ))}
+              </div>
+
+              {/* ========== STEP 1: メンバー ========== */}
+              {step === 1 && (
+                <>
+                  <div style={S.dateRow}>
+                    <span style={S.miniLabel}>対局日</span>
+                    <input style={S.dateInput} type="date" value={gameDate}
+                      onChange={(e) => setGameDate(e.target.value)} />
+                  </div>
+
+                  {groups.length > 0 && (
+                    <>
+                      <div style={S.miniLabel}>グループから選ぶ</div>
+                      {groups.map((g) => {
+                        const on = g.memberIds.every((id) => seats.includes(id)) && seats.filter(Boolean).length === 4;
+                        return (
+                          <button key={g.id} style={{ ...S.groupPick, ...(on ? S.groupPickOn : {}) }}
+                            onClick={() => { setSeats([...g.memberIds]); setErr(""); }}>
+                            {g.name}
+                            <span style={S.groupPickSub}>{g.memberIds.map(memberName).join("・")}</span>
+                          </button>
+                        );
+                      })}
+                      <div style={S.orLine}>または 1人ずつ選ぶ</div>
+                    </>
+                  )}
+                  {groups.length === 0 && <div style={S.miniLabel}>4人を選ぶ</div>}
+
+                  <div style={S.memberGrid}>
+                    {members.map((m) => {
+                      const idx = seats.indexOf(m.id);
+                      const on = idx >= 0;
                       return (
-                        <button key={g.id} onClick={() => { setSeats([...g.memberIds]); setErr(""); }}
-                          style={{ ...S.chip, ...(on ? S.chipOn : {}) }}>
-                          {g.name}
-                          <span style={S.chipSub}>{g.memberIds.map(memberName).join("・")}</span>
+                        <button key={m.id} style={{ ...S.memberPick, ...(on ? S.memberPickOn : {}) }}
+                          onClick={() => {
+                            const next = [...seats];
+                            if (on) next[idx] = null;
+                            else {
+                              const slot = next.indexOf(null);
+                              if (slot === -1) return;
+                              next[slot] = m.id;
+                            }
+                            setSeats(next);
+                            setErr("");
+                          }}>
+                          {m.name}
+                          {on && <span style={S.memberPickNo}>{idx + 1}</span>}
                         </button>
                       );
                     })}
                   </div>
-                </div>
+
+                  <button className="press"
+                    style={{ ...S.primary, ...(seats.filter((x) => x != null).length === 4 ? {} : S.primaryOff) }}
+                    onClick={() => { if (seats.every((x) => x != null)) { setStep(2); setErr(""); } }}>
+                    座り順へ　›
+                  </button>
+                </>
               )}
 
-              <div style={S.dateRow}>
-                <span style={S.miniLabel}>対局日</span>
-                <input style={S.dateInput} type="date" value={gameDate} onChange={(e) => setGameDate(e.target.value)} />
-              </div>
-
-              <div style={S.inputHead}>
-                <span>メンバー</span>
-                <span>点数</span>
-              </div>
-
-              {[0, 1, 2, 3].map((i) => {
-                const isAuto = i === autoFilled;
-                return (
-                  <div key={i} style={S.inputRow}>
-                    <select style={S.select} value={seats[i] == null ? "" : seats[i]}
-                      onChange={(e) => {
-                        const s = [...seats];
-                        s[i] = e.target.value === "" ? null : Number(e.target.value);
-                        setSeats(s);
-                      }}>
-                      <option value="">選択</option>
-                      {members.map((m) => (
-                        <option key={m.id} value={m.id} disabled={seats.includes(m.id) && seats[i] !== m.id}>{m.name}</option>
-                      ))}
-                    </select>
-                    <div style={S.scoreWrap}>
-                      <input
-                        style={{
-                          ...S.scoreInput,
-                          color: (Number(scores[i]) || 0) < 0 ? MINUS : INK,
-                          ...(isAuto ? S.scoreAuto : {}),
-                        }}
-                        type="text" inputMode="numeric" pattern="-?[0-9]*"
-                        value={scores[i]} placeholder="25000"
-                        onChange={(e) => setScore(i, e.target.value)}
-                        onBlur={handleBlur}
-                        onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()} />
-                      {isAuto && <span style={S.autoTag}>自動</span>}
-                    </div>
-                    <button style={S.signBtn} title="符号を反転"
-                      onClick={() => {
-                        const t = scores[i].trim();
-                        setScore(i, t === "" || t === "-" ? "-" : t.startsWith("-") ? t.slice(1) : "-" + t);
-                      }}>±</button>
+              {/* ========== STEP 2: 座り順 ========== */}
+              {step === 2 && (
+                <>
+                  <div style={S.miniLabel}>起家（東家）から反時計回りに並びます</div>
+                  <p style={S.stepGuide}>
+                    2人の名前をタップすると席を入れ替えられます。
+                  </p>
+                  <div style={S.tableWrap}>
+                    {SEAT_POS.map((pos, i) => (
+                      <button key={i}
+                        style={{ ...S.seatBox, ...S.seatBoxTall, ...pos.style, ...(swapFrom === i ? S.seatBoxSel : {}) }}
+                        onClick={() => {
+                          if (swapFrom == null) { setSwapFrom(i); return; }
+                          if (swapFrom === i) { setSwapFrom(null); return; }
+                          const n = [...seats];
+                          [n[swapFrom], n[i]] = [n[i], n[swapFrom]];
+                          setSeats(n);
+                          setSwapFrom(null);
+                        }}>
+                        <span style={S.seatFaceRow}>
+                          <Avatar id={seats[i]} size={34} />
+                          <span style={S.seatInfo}>
+                            <span style={{ ...S.seatWind, ...(i === 0 ? S.seatWindE : {}) }}>
+                              {WINDS[i]}家{i === 0 ? "・起家" : ""}
+                            </span>
+                            <span style={{ ...S.seatName, color: memberColor(seats[i]), marginTop: 1, textAlign: "left" }}>
+                              {memberName(seats[i])}
+                            </span>
+                          </span>
+                        </span>
+                      </button>
+                    ))}
+                    <div style={S.tableCenter} />
                   </div>
-                );
-              })}
 
-              <div style={{ ...S.totalBar, background: filledCount === 0 ? "#F5F4F1" : diff === 0 ? "#EAF3EC" : "#FBEBE8" }}>
-                <span style={S.totalLabel}>合計</span>
-                <span style={S.totalNums}>
-                  <b style={{ color: diff === 0 && filledCount > 0 ? PLUS : INK }}>{inputTotal.toLocaleString()}</b>
-                  <span style={{ color: "#9A968E" }}> / {TOTAL.toLocaleString()}</span>
-                </span>
-                {filledCount > 0 && (
-                  <span style={{ ...S.totalDiff, color: diff === 0 ? PLUS : MINUS }}>
-                    {diff === 0 ? "✓" : `${diff > 0 ? "+" : ""}${diff.toLocaleString()}`}
-                  </span>
-                )}
-              </div>
+                  <button style={S.rotateBtn}
+                    onClick={() => { setSeats([seats[1], seats[2], seats[3], seats[0]]); setSwapFrom(null); }}>
+                    ⟳ 親を次へ（いまの南家が東家に）
+                  </button>
 
-              <p style={S.hint}>3人ぶん入れて欄の外をタップすると、残り1人が自動で入ります。箱下は「±」で符号を反転。</p>
-              {err && <p style={S.err}>{err}</p>}
-              <button className="press" style={{ ...S.primary, ...(canSubmit ? {} : S.primaryOff) }} onClick={addGame}>
-                この半荘を記録する
-              </button>
+                  <div style={S.stepBtnRow}>
+                    <button style={S.stepBack} onClick={() => { setStep(1); setSwapFrom(null); }}>‹ 戻る</button>
+                    <button className="press" style={{ ...S.primary, flex: 2, marginTop: 0 }}
+                      onClick={() => { setStep(3); setSwapFrom(null); }}>点数入力へ　›</button>
+                  </div>
+                </>
+              )}
+
+              {/* ========== STEP 3: 点数 ========== */}
+              {step === 3 && (
+                <>
+                  <div style={S.miniLabel}>終局時の点数を入れる</div>
+                  <div style={S.tableWrap}>
+                    {SEAT_POS.map((pos, i) => (
+                      <div key={i} style={{ ...S.seatBox, ...pos.style, cursor: "default" }}>
+                        <span style={S.seatFaceRow}>
+                          <Avatar id={seats[i]} size={34} />
+                          <span style={S.seatInfo}>
+                            <span style={{ ...S.seatWind, ...(i === 0 ? S.seatWindE : {}) }}>{WINDS[i]}家</span>
+                            <span style={{ ...S.seatName, color: memberColor(seats[i]), marginTop: 1, textAlign: "left" }}>
+                              {memberName(seats[i])}
+                            </span>
+                          </span>
+                        </span>
+                        <div style={S.seatScoreWrap}>
+                          <input
+                            style={{
+                              ...S.seatScore,
+                              color: (Number(scores[i]) || 0) < 0 ? MINUS : INK,
+                              ...(i === autoFilled ? S.seatScoreAuto : {}),
+                            }}
+                            type="text" inputMode="numeric" pattern="-?[0-9]*"
+                            value={scores[i]} placeholder="25000"
+                            onChange={(e) => setScore(i, e.target.value)}
+                            onBlur={handleBlur}
+                            onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()} />
+                          <button style={S.seatSign} title="符号を反転"
+                            onClick={() => {
+                              const t = scores[i].trim();
+                              setScore(i, t === "" || t === "-" ? "-" : t.startsWith("-") ? t.slice(1) : "-" + t);
+                            }}>±</button>
+                        </div>
+                      </div>
+                    ))}
+                    <div style={S.tableCenter} />
+                  </div>
+
+                  <div style={{ ...S.totalBar, background: filledCount === 0 ? "rgba(4,22,16,.45)" : diff === 0 ? "rgba(30,111,69,.22)" : "rgba(176,58,46,.20)" }}>
+                    <span style={S.totalLabel}>合計</span>
+                    <span style={S.totalNums}>
+                      <b style={{ color: diff === 0 && filledCount > 0 ? PLUS_D : "#F0E6CC" }}>{inputTotal.toLocaleString()}</b>
+                      <span style={{ color: T.faint }}> / {TOTAL.toLocaleString()}</span>
+                    </span>
+                    {filledCount > 0 && (
+                      <span style={{ ...S.totalDiff, color: diff === 0 ? PLUS_D : MINUS_D }}>
+                        {diff === 0 ? "✓" : `${diff > 0 ? "+" : ""}${diff.toLocaleString()}`}
+                      </span>
+                    )}
+                  </div>
+
+                  <p style={S.hint}>3人ぶん入れて欄の外をタップすると、残り1人が自動で入ります。箱下は「±」で符号を反転。</p>
+                  {err && <p style={S.err}>{err}</p>}
+                  <div style={S.stepBtnRow}>
+                    <button style={S.stepBack} onClick={() => setStep(2)}>‹ 戻る</button>
+                    <button className="press" style={{ ...S.primary, flex: 2, marginTop: 0, ...(canSubmit ? {} : S.primaryOff) }}
+                      onClick={() => addGame()}>記録する</button>
+                  </div>
+                </>
+              )}
             </>
           )}
         </div>
@@ -919,7 +1645,7 @@ function MLeagueTracker() {
                 {days.map((d) => (
                   <button key={d} onClick={() => setSelectedDay(d)}
                     style={{ ...S.chip, ...(selectedDay === d ? S.chipOn : {}) }}>
-                    {formatDay(d)}
+                    <span style={S.chipDay}>{formatDay(d)}</span>
                     <span style={S.chipSub}>{games.filter((g) => g.date === d).length}半荘</span>
                   </button>
                 ))}
@@ -932,7 +1658,12 @@ function MLeagueTracker() {
                       <th style={{ ...S.gTh, ...S.stickyHead }}>#</th>
                       {dayMembers.map((id) => (
                         <th key={id} style={S.gTh}>
-                          <span style={{ ...S.headName, background: memberColor(id) }}>{memberName(id)}</span>
+                          <span style={S.headCell}>
+                            <span style={{ ...S.headRing, background: `linear-gradient(150deg, ${memberColor(id)}, rgba(0,0,0,.25))` }}>
+                              <Avatar id={id} size={34} />
+                            </span>
+                            <span style={{ ...S.headName, color: memberColor(id) }}>{memberName(id)}</span>
+                          </span>
                         </th>
                       ))}
                       <th style={{ ...S.gTh, width: 28 }} />
@@ -950,17 +1681,19 @@ function MLeagueTracker() {
                               ...S.gTd,
                               ...(e.rank === 1 ? S.cellWin : { background: RANK_BG[e.rank - 1] }),
                             }}>
-                              <span style={{ ...S.cellRank, color: RANK_INK[e.rank - 1] }}>
-                                {e.rank === 1 && <span style={S.crown}>♛</span>}{e.rank}
+                              <span style={{ ...S.rankRibbon, ...RANK_RIBBON[e.rank - 1] }}>
+                                {e.rank === 1 && "♛ "}{e.rank}位
                               </span>
                               <span style={{ ...S.cellPt, color: e.point >= 0 ? PLUS : MINUS }}>{signed(e.point)}</span>
-                              <span style={{ ...S.cellRaw, color: e.raw < 0 ? MINUS : "#8A867E" }}>
-                                {e.raw.toLocaleString()}
+                              <span style={{ ...S.cellRule, ...(e.rank === 1 ? S.cellRuleWin : {}) }} />
+                              <span style={{ ...S.cellRaw, color: e.raw < 0 ? MINUS : "#5A5750" }}>
+                                {e.raw.toLocaleString()}<span style={S.cellUnit}> 点</span>
                               </span>
                             </td>
                           );
                         })}
                         <td style={S.gTd}>
+                          <button style={S.editBtn} onClick={() => openEdit(g)}>✎</button>
                           <button style={S.xBtn}
                             onClick={() => setConfirmAsk({
                               title: `${gi + 1}半荘目を削除しますか？`,
@@ -1045,32 +1778,61 @@ function MLeagueTracker() {
             </div>
           )}
 
+          <div style={{ marginBottom: 16 }}>
+            <div style={S.miniLabel}>期間</div>
+            <div style={S.scrollRow}>
+              {periodOptions.map((o) => (
+                <button key={o.key} onClick={() => setPeriod(o.key)}
+                  style={{ ...S.chip, ...(period === o.key ? S.chipOn : {}) }}>
+                  {o.label}
+                  {o.season && <span style={S.chipSub}>{o.season.closed ? "確定" : "進行中"}</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {ranked.length === 0 ? (
             <p style={S.empty}>
-              {totalGroupId == null ? "まだ記録がありません。" : "このグループ4人での対戦記録はまだありません。"}
+              {period !== "all"
+                ? "この期間の記録はまだありません。"
+                : totalGroupId == null ? "まだ記録がありません。" : "このグループ4人での対戦記録はまだありません。"}
             </p>
           ) : (
             <>
               <div style={S.totalHead}>
                 <span style={S.totalHeadMain}>
                   {totalGroupId == null ? "全体累計" : groups.find((g) => g.id === totalGroupId)?.name}
+                  {period !== "all" && (
+                    <span style={S.periodTag}>{periodOptions.find((o) => o.key === period)?.label}</span>
+                  )}
                 </span>
                 <span style={S.totalHeadSub}>{totalGames.length}半荘 · {totalDays}日</span>
               </div>
 
               {/* 順位表 */}
               <div style={S.section}>ランキング</div>
+              <div style={{ ...S.scrollRow, marginBottom: 12 }}>
+                {SORTS.map((o) => (
+                  <button key={o.key} onClick={() => setSortKey(o.key)}
+                    style={{ ...S.sortChip, ...(sortKey === o.key ? S.sortChipOn : {}) }}>
+                    {o.label}
+                  </button>
+                ))}
+              </div>
               {ranked.map((m, i) => {
                 const st = totalStats[m.id];
+                const isTop = i === 0;
                 const medal = i < 3 ? ["#E8C766", "#C7C4BD", "#CD9A6A"][i] : null;
                 return (
-                  <button key={m.id} onClick={() => setDetailId(m.id)} style={S.totalRow} className="press">
+                  <button key={m.id} onClick={() => setDetailId(m.id)}
+                    style={{ ...S.totalRow, ...(isTop ? S.totalRowTop : {}) }} className="press">
                     <span style={{ ...S.totalRank, ...(medal ? { background: medal, color: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.18)" } : {}) }}>
                       {i + 1}
                     </span>
                     <span style={{ ...S.totalStripe, background: memberColor(m.id) }} />
-                    <span style={S.totalBody}>
-                      <span style={{ ...S.totalName, ...(i === 0 ? { fontSize: 16 } : {}) }}>{m.name}</span>
+                    <Avatar id={m.id} size={34} />
+                    <span style={{ ...S.totalBody, marginLeft: 9 }}>
+                      <span style={{ ...S.totalName, ...(isTop ? { fontSize: 16 } : {}) }}>{m.name}</span>
                       <span style={S.totalMeta}>
                         {st.n}半荘 · 平均{st.avgRank.toFixed(2)}位 ·{" "}
                         {st.ranks.map((c, k) => (
@@ -1081,11 +1843,20 @@ function MLeagueTracker() {
                       </span>
                     </span>
                     <span style={S.totalPts}>
-                      <b className={i === 0 ? "pop" : ""}
-                        style={{ ...S.totalPtMain, fontSize: i === 0 ? 26 : 19, color: st.point >= 0 ? PLUS : MINUS }}>
-                        {signed(st.point)}
+                      <b className={isTop ? "pop" : ""}
+                        style={{
+                          ...S.totalPtMain, fontSize: isTop ? 26 : 19,
+                          color: isGood(st) ? PLUS_D : MINUS_D,
+                        }}>
+                        {sortKey === "point" ? signed(st.point)
+                          : sortKey === "avgRank" ? st.avgRank.toFixed(2)
+                          : sortKey === "top" ? `${st.top.toFixed(0)}%`
+                          : sortKey === "avgPoint" ? signed(st.avgPoint)
+                          : `${(100 - st.last).toFixed(0)}%`}
                       </b>
-                      <span style={S.totalPtSub}>平均 {signed(st.avgPoint)}</span>
+                      <span style={S.totalPtSub}>
+                        {sortKey === "point" ? `平均 ${signed(st.avgPoint)}` : `合計 ${signed(st.point)}`}
+                      </span>
                     </span>
                     <span style={S.chevron}>›</span>
                   </button>
@@ -1099,14 +1870,14 @@ function MLeagueTracker() {
                   <div style={S.hlGrid}>
                     <div style={S.hlCard}>
                       <span style={S.hlLabel}>最高点</span>
-                      <b style={{ ...S.hlValue, color: PLUS }}>{highlights.bestGame.raw.toLocaleString()}</b>
+                      <b style={{ ...S.hlValue, color: PLUS_D }}>{highlights.bestGame.raw.toLocaleString()}</b>
                       <span style={S.hlSub}>
                         {memberName(highlights.bestGame.memberId)} · {formatDay(highlights.bestGame.date)}
                       </span>
                     </div>
                     <div style={S.hlCard}>
                       <span style={S.hlLabel}>最低点</span>
-                      <b style={{ ...S.hlValue, color: MINUS }}>{highlights.worstGame.raw.toLocaleString()}</b>
+                      <b style={{ ...S.hlValue, color: MINUS_D }}>{highlights.worstGame.raw.toLocaleString()}</b>
                       <span style={S.hlSub}>
                         {memberName(highlights.worstGame.memberId)} · {formatDay(highlights.worstGame.date)}
                       </span>
@@ -1126,6 +1897,105 @@ function MLeagueTracker() {
                       <span style={S.hlSub}>{highlights.byRank.name}</span>
                     </div>
                   </div>
+                </>
+              )}
+
+              {/* 記録集（歴代ベスト） */}
+              {records && (
+                <>
+                  <div style={{ ...S.section, marginTop: 24 }}>記録集</div>
+
+                  <div style={S.recBoard}>
+                    <div style={S.recBoardHead}>
+                      <span style={S.recCrown}>♛</span>歴代最高得点
+                    </div>
+                    {records.topRaw.map((e, i) => (
+                      <div key={`${e.memberId}-${e.date}-${e.raw}`}
+                        style={{ ...S.recRow, ...(i === 0 ? S.recRowTop : {}) }}>
+                        <span style={{ ...S.recNo, ...(i === 0 ? S.recNoTop : {}) }}>{i + 1}</span>
+                        <span style={{ ...S.recName, color: memberColorD(e.memberId) }}>{memberName(e.memberId)}</span>
+                        <span style={S.recDate}>{formatDay(e.date)}</span>
+                        <b style={{ ...S.recVal, ...(i === 0 ? S.recValTop : {}) }}>
+                          {e.raw.toLocaleString()}<span style={S.recUnit}> 点</span>
+                        </b>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div style={S.recGrid}>
+                    {records.bestDay && (
+                      <div style={S.recCard}>
+                        <span style={S.recCardLabel}>1日の最高収支</span>
+                        <b style={{ ...S.recCardVal, color: PLUS_D }}>{signed(records.bestDay.point)}</b>
+                        <span style={S.recCardSub}>
+                          {memberName(records.bestDay.memberId)} · {formatDay(records.bestDay.date)}
+                        </span>
+                      </div>
+                    )}
+                    {records.worstDay && (
+                      <div style={S.recCard}>
+                        <span style={S.recCardLabel}>1日の最低収支</span>
+                        <b style={{ ...S.recCardVal, color: MINUS_D }}>{signed(records.worstDay.point)}</b>
+                        <span style={S.recCardSub}>
+                          {memberName(records.worstDay.memberId)} · {formatDay(records.worstDay.date)}
+                        </span>
+                      </div>
+                    )}
+                    {records.comeback && records.comeback.gain > 0 && (
+                      <div style={S.recCard}>
+                        <span style={S.recCardLabel}>最大の逆転</span>
+                        <b style={{ ...S.recCardVal, color: T.gold }}>+{records.comeback.gain}</b>
+                        <span style={S.recCardSub}>
+                          {memberName(records.comeback.memberId)} · {records.comeback.from} → {signed(records.comeback.final)}
+                        </span>
+                      </div>
+                    )}
+                    {records.lowRaw[0] && (
+                      <div style={S.recCard}>
+                        <span style={S.recCardLabel}>歴代最低得点</span>
+                        <b style={{ ...S.recCardVal, color: MINUS_D }}>{records.lowRaw[0].raw.toLocaleString()}</b>
+                        <span style={S.recCardSub}>
+                          {memberName(records.lowRaw[0].memberId)} · {formatDay(records.lowRaw[0].date)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 連続記録 */}
+                  {(() => {
+                    const rows = [
+                      { key: "topRun", now: "nowTop", label: "連続トップ", unit: "連続" },
+                      { key: "renRun", now: "nowRen", label: "連続連対", unit: "連続" },
+                      { key: "noLastRun", now: "nowNoLast", label: "ラスなし", unit: "半荘" },
+                    ];
+                    return (
+                      <div style={S.recBoard}>
+                        <div style={S.recBoardHead}>連続記録</div>
+                        {rows.map((r) => {
+                          const best = records.pick(r.key);
+                          if (!best || best[r.key] < 2) return null;
+                          const ongoing = records.streaks.filter((x) => x[r.now] >= 2)
+                            .sort((a, b) => b[r.now] - a[r.now])[0];
+                          return (
+                            <div key={r.key} style={S.recRow}>
+                              <span style={S.recStreakLabel}>{r.label}</span>
+                              <span style={{ ...S.recName, color: memberColorD(best.memberId) }}>
+                                {memberName(best.memberId)}
+                              </span>
+                              <b style={S.recVal}>
+                                {best[r.key]}<span style={S.recUnit}> {r.unit}</span>
+                              </b>
+                              {ongoing && (
+                                <span style={S.recNow}>
+                                  継続中 {memberName(ongoing.memberId)} {ongoing[r.now]}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </>
               )}
 
@@ -1153,6 +2023,10 @@ function MLeagueTracker() {
               members.map((m) => (
                 <div key={m.id} style={S.memberRow}>
                   <span style={{ ...S.memberStripe, background: memberColor(m.id) }} />
+                  <button style={S.avatarBtn} title="アイコンを変える"
+                    onClick={() => { setAvatarPick(m.id); setErr(""); }}>
+                    <Avatar id={m.id} size={32} />
+                  </button>
                   {editId === m.id ? (
                     <>
                       <input style={S.memberInputOn} value={editText} autoFocus
@@ -1205,7 +2079,7 @@ function MLeagueTracker() {
                     note: "対戦記録はそのまま残ります。",
                     onOk: () => {
                               rpc("del_group", { id: g.id })
-                                .then(() => setGroups(groups.filter((x) => x.id !== g.id)))
+                                .then(() => setGroups((prev) => prev.filter((x) => x.id !== g.id)))
                                 .catch(() => setErr(NET_ERR));
                             },
                   })}>×</button>
@@ -1248,7 +2122,90 @@ function MLeagueTracker() {
           </div>
 
           <div style={{ ...S.card, marginTop: 12 }} className="card-tex">
-            <div style={S.section}>データ <span style={S.verTag}>v3.1 合言葉つき</span></div>
+            <div style={S.section}>シーズン</div>
+            <p style={S.hint}>期間を区切って戦うと、累計タブでその期間だけの順位が見られます。</p>
+            {seasons.length > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                {[...seasons].sort((a, b) => (a.start < b.start ? 1 : -1)).map((sn) => {
+                  const cnt = games.filter((g) => g.date >= sn.start && (!sn.end || g.date <= sn.end)).length;
+                  const aw = seasonSummaries[sn.id];
+                  return (
+                    <div key={sn.id} style={S.seasonCard}>
+                      <div style={S.seasonCardHead}>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={S.seasonName}>{sn.name}</div>
+                          <div style={S.seasonMeta}>
+                            {formatDay(sn.start)} 〜 {sn.end ? formatDay(sn.end) : ""} · {cnt}半荘
+                          </div>
+                        </div>
+                        <span style={{ ...S.seasonState, ...(sn.closed ? {} : S.seasonStateOn) }}>
+                          {sn.closed ? "確定" : "進行中"}
+                        </span>
+                        <button style={S.seasonBtn} onClick={() => closeSeason(sn)}>
+                          {sn.closed ? "再開" : "確定"}
+                        </button>
+                        <button style={S.xBtn}
+                          onClick={() => setConfirmAsk({
+                            title: `「${sn.name}」を削除しますか？`,
+                            note: "対戦の記録は消えません。期間の区切りだけがなくなります。",
+                            onOk: () => removeSeason(sn.id),
+                          })}>×</button>
+                      </div>
+
+                      {aw ? (
+                        <div style={{ cursor: "pointer" }} onClick={() => setSeasonView(sn.id)}>
+                          <div style={S.seasonChamp}>
+                            <span style={S.seasonChampCrown}>♛</span>
+                            <span style={S.seasonChampName}>{memberName(aw.champ)}</span>
+                            <span style={{ ...S.seasonChampPt, color: aw.st[aw.champ].total >= 0 ? "#12683F" : "#9E2E22" }}>
+                              {signed(aw.st[aw.champ].total)}
+                            </span>
+                          </div>
+                          <div style={S.pillRow}>
+                            {aw.bestScore && <span style={S.pill}>最高得点 <b>{memberName(aw.bestScore)}</b></span>}
+                            {aw.lastAvoid && <span style={S.pill}>ラス回避 <b>{memberName(aw.lastAvoid)}</b></span>}
+                            {aw.stable && <span style={S.pill}>安定 <b>{memberName(aw.stable)}</b></span>}
+                          </div>
+                          <div style={S.openHint}>表彰と成績を見る ›</div>
+                        </div>
+                      ) : (
+                        <p style={{ ...S.hint, margin: "6px 0 0" }}>この期間の記録はまだありません。</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {!showSeasonForm ? (
+              <button style={S.secondary} onClick={() => { setShowSeasonForm(true); setErr(""); }}>
+                ＋ シーズンを作る
+              </button>
+            ) : (
+              <div style={S.groupForm}>
+                <input style={S.memberInputOn} placeholder="シーズン名（例：2026年 下期）"
+                  value={seasonDraft.name}
+                  onChange={(e) => setSeasonDraft({ ...seasonDraft, name: e.target.value })} />
+                <div style={S.seasonDates}>
+                  <label style={S.editLabel}>開始
+                    <input type="date" style={S.editInput} value={seasonDraft.start}
+                      onChange={(e) => setSeasonDraft({ ...seasonDraft, start: e.target.value })} />
+                  </label>
+                  <label style={S.editLabel}>終了（空欄で進行中）
+                    <input type="date" style={S.editInput} value={seasonDraft.end}
+                      onChange={(e) => setSeasonDraft({ ...seasonDraft, end: e.target.value })} />
+                  </label>
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                  <button style={{ ...S.secondary, flex: 1, marginTop: 0 }}
+                    onClick={() => { setShowSeasonForm(false); setErr(""); }}>やめる</button>
+                  <button style={{ ...S.primary, flex: 1, marginTop: 0 }} onClick={saveSeason}>保存</button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div style={{ ...S.card, marginTop: 12 }} className="card-tex">
+            <div style={S.section}>データ <span style={S.verTag}>{DEV_MODE ? "開発プレビュー" : "v4"}</span></div>
             <p style={S.hint}>
               記録はネット上の共有データベースに保存され、メンバー全員で同じ内容が見られます。
               念のため、ときどき書き出してバックアップしておくと安心です。
@@ -1274,10 +2231,176 @@ function MLeagueTracker() {
               </label>
             </div>
             {ioMsg && (
-              <p style={{ ...S.ioMsg, color: ioMsg.ok ? PLUS : MINUS }}>{ioMsg.text}</p>
+              <p style={{ ...S.ioMsg, color: ioMsg.ok ? PLUS_D : MINUS_D }}>{ioMsg.text}</p>
             )}
           </div>
         </>
+      )}
+
+      {openSeasonAward && seasonAward && (
+        <div style={S.certMask} onClick={() => setSeasonView(null)}>
+          <div style={S.certSheet} onClick={(e) => e.stopPropagation()}>
+            <button style={S.certBack} onClick={() => setSeasonView(null)}>‹ シーズン一覧へ戻る</button>
+
+            {!openSeasonAward.closed && (
+              <div style={S.provNote}>
+                <b>まだ進行中のシーズンです。</b><br />
+                下の表彰は現時点での暫定で、これから変わります。
+              </div>
+            )}
+
+            <div style={S.cert}>
+              <div style={S.certInner} />
+              <div style={S.certHead}>
+                Ｍリーグルール　{openSeasonAward.closed ? "成績表" : "途中経過"}
+              </div>
+              <div style={S.certSeason}>
+                {openSeasonAward.name}　{formatDay(openSeasonAward.start)} — {openSeasonAward.end ? formatDay(openSeasonAward.end) : "進行中"}　全{seasonAward.n}半荘
+              </div>
+
+              <div style={S.champRow}>
+                <div style={{ ...S.champCrown, ...(openSeasonAward.closed ? {} : S.champCrownProv) }}>♛</div>
+                <div style={{ ...S.champLabel, ...(openSeasonAward.closed ? {} : S.champLabelProv) }}>
+                  {openSeasonAward.closed ? "優　勝" : "暫定首位"}
+                </div>
+                <div style={S.champName}>{memberName(seasonAward.champ)}</div>
+                <div style={{ ...S.champPt, color: seasonAward.st[seasonAward.champ].total >= 0 ? PLUS : MINUS }}>
+                  {signed(seasonAward.st[seasonAward.champ].total)}
+                </div>
+                <div style={S.champMeta}>
+                  平均順位 {seasonAward.st[seasonAward.champ].avgRank.toFixed(2)} ／ トップ率 {seasonAward.st[seasonAward.champ].top.toFixed(1)}%
+                </div>
+              </div>
+
+              <div style={S.certHair} />
+
+              <div style={{ display: "grid", gap: 7 }}>
+                {seasonAward.bestScore && (
+                  <div style={S.awRow}>
+                    <span style={S.awIcon}>★</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={S.awLabel}>最高得点{openSeasonAward.closed ? "賞" : ""}</div>
+                      <div style={{ ...S.awName, color: memberColor(seasonAward.bestScore) }}>{memberName(seasonAward.bestScore)}</div>
+                    </div>
+                    <span style={S.awVal}>{seasonAward.st[seasonAward.bestScore].bestRaw.toLocaleString()}</span>
+                  </div>
+                )}
+                {seasonAward.lastAvoid && (
+                  <div style={S.awRow}>
+                    <span style={S.awIcon}>◈</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={S.awLabel}>ラス回避{openSeasonAward.closed ? "賞" : ""}</div>
+                      <div style={{ ...S.awName, color: memberColor(seasonAward.lastAvoid) }}>{memberName(seasonAward.lastAvoid)}</div>
+                    </div>
+                    <span style={S.awVal}>{(100 - seasonAward.st[seasonAward.lastAvoid].last).toFixed(1)}%</span>
+                  </div>
+                )}
+                {seasonAward.stable && (
+                  <div style={S.awRow}>
+                    <span style={S.awIcon}>≡</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={S.awLabel}>安定{openSeasonAward.closed ? "賞" : ""}</div>
+                      <div style={{ ...S.awName, color: memberColor(seasonAward.stable) }}>{memberName(seasonAward.stable)}</div>
+                    </div>
+                    <span style={S.awVal}>ブレ{seasonAward.st[seasonAward.stable].sd.toFixed(0)}</span>
+                  </div>
+                )}
+              </div>
+
+              <div style={S.certHair} />
+
+              <div>
+                {seasonAward.standings.map((id, i) => (
+                  <div key={id} style={{ ...S.stdRow, ...(i === 0 ? { borderTop: "none" } : {}) }}>
+                    <span style={{ ...S.stdNo, ...(i === 0 ? S.stdNoTop : {}) }}>
+                      {i === 0 && openSeasonAward.closed ? "♛" : i + 1}
+                    </span>
+                    <span style={{ ...S.stdName, color: memberColor(id) }}>{memberName(id)}</span>
+                    <span style={S.stdSub}>{seasonAward.st[id].n}戦 {seasonAward.st[id].avgRank.toFixed(2)}</span>
+                    <span style={{ ...S.stdPt, color: seasonAward.st[id].total >= 0 ? PLUS : MINUS }}>
+                      {signed(seasonAward.st[id].total)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <button style={S.certToTotal}
+              onClick={() => { setPeriod(`s${openSeasonAward.id}`); setSeasonView(null); setTab("total"); }}>
+              このシーズンの成績を詳しく見る
+            </button>
+          </div>
+        </div>
+      )}
+
+      {avatarPick != null && (
+        <div style={S.overlay} onClick={() => setAvatarPick(null)}>
+          <div style={S.dialog} className="card-tex" onClick={(e) => e.stopPropagation()}>
+            <div style={S.dialogTitle}>{memberName(avatarPick)} のアイコン</div>
+            <div style={S.avatarGrid}>
+              {AVATARS.map((a) => {
+                const taken = members.find((m) => m.avatar === a.id && m.id !== avatarPick);
+                const on = memberAvatar(avatarPick) === a.id;
+                return (
+                  <button key={a.id} style={{ ...S.avatarCell, ...(on ? S.avatarCellOn : {}) }}
+                    onClick={() => setAvatar(avatarPick, a.id)}>
+                    <img src={avatarSrc(a.id)} alt="" style={S.avatarCellImg} />
+                    <span style={S.avatarCellLabel}>{a.label}</span>
+                    {taken && <span style={S.avatarTaken}>{taken.name}</span>}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ display: "flex", gap: 9, marginTop: 4 }}>
+              <button style={S.dialogCancel} onClick={() => setAvatarPick(null)}>閉じる</button>
+              {memberAvatar(avatarPick) && (
+                <button style={S.dialogCancel} onClick={() => setAvatar(avatarPick, null)}>外す</button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editGame && (
+        <div style={S.overlay} onClick={() => setEditGame(null)}>
+          <div style={S.dialog} className="card-tex" onClick={(e) => e.stopPropagation()}>
+            <div style={S.dialogTitle}>半荘の修正</div>
+            <label style={S.editLabel}>対戦日</label>
+            <input type="date" value={editDate} style={S.editInput}
+              onChange={(e) => setEditDate(e.target.value)} />
+            <label style={S.editLabel}>点数</label>
+            {editGame.entries.map((e, i) => (
+              <div key={e.memberId} style={S.editRow}>
+                <span style={{ ...S.editName, color: memberColorD(e.memberId) }}>{memberName(e.memberId)}</span>
+                <input type="text" inputMode="numeric" value={editScores[i]} style={S.editScore}
+                  onChange={(ev) => {
+                    const n = [...editScores];
+                    n[i] = toHalf(ev.target.value).replace(/[^\d-]/g, "");
+                    setEditScores(n);
+                  }} />
+                <button style={S.editSign}
+                  onClick={() => {
+                    const n = [...editScores];
+                    n[i] = n[i].startsWith("-") ? n[i].slice(1) : "-" + n[i];
+                    setEditScores(n);
+                  }}>±</button>
+              </div>
+            ))}
+            <div style={S.editSum}>
+              合計 <b style={{
+                fontFamily: NUM,
+                color: editScores.reduce((a, v) => a + (parseInt(v, 10) || 0), 0) === TOTAL ? PLUS : MINUS,
+              }}>{editScores.reduce((a, v) => a + (parseInt(v, 10) || 0), 0).toLocaleString()}</b>
+              <span style={S.editSumHint}> / {TOTAL.toLocaleString()}</span>
+            </div>
+            {err && <p style={S.err}>{err}</p>}
+            <p style={S.dialogNote}>着順とポイントは、直した点数から計算し直します。</p>
+            <div style={{ display: "flex", gap: 9 }}>
+              <button style={S.dialogCancel} onClick={() => { setEditGame(null); setErr(""); }}>やめる</button>
+              <button style={S.dialogOk} onClick={saveEdit}>保存する</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {confirmAsk && (
@@ -1300,12 +2423,72 @@ function MLeagueTracker() {
 }
 
 const round1 = (v) => Math.round(v * 10) / 10;
+// 麻雀の席順は反時計回り：東(手前)→南(右)→西(奥)→北(左)
+// プロフィールアイコン（avatars/ フォルダの画像を参照）
+const AVATARS = [
+  { id: "kitsune", label: "狐" },
+  { id: "ryu", label: "黒龍" },
+  { id: "tora", label: "虎" },
+  { id: "kame", label: "亀" },
+  { id: "tsuru", label: "鶴" },
+  { id: "tanuki", label: "狸" },
+  { id: "robot", label: "ロボ" },
+  { id: "hoo", label: "鳳凰" },
+  { id: "seiryu", label: "青龍" },
+  { id: "fukuro", label: "梟" },
+  { id: "nikuman", label: "肉まん" },
+  { id: "shiba", label: "柴犬" },
+];
+// 開発プレビュー用に画像を埋め込んでおく（本番は avatars/ フォルダを読む）
+const AVATAR_DATA = {};
+const avatarSrc = (id) => (DEV_MODE ? (AVATAR_DATA[id] || "") : `avatars/${id}.png`);
+
+const WINDS = ["東", "南", "西", "北"];
+const SEAT_POS = [
+  { style: { bottom: 10, left: "50%", transform: "translateX(-50%)" } }, // 東：手前
+  { style: { right: 10, top: "50%", transform: "translateY(-50%)" } },   // 南：右
+  { style: { top: 10, left: "50%", transform: "translateX(-50%)" } },    // 西：奥
+  { style: { left: 10, top: "50%", transform: "translateY(-50%)" } },    // 北：左
+];
+
+// 全角数字やマイナス記号を半角に直す（日本語入力のままでも入力できるように）
+const toHalf = (str) =>
+  String(str)
+    .replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+    .replace(/[ー−–—〜]/g, "-")
+    .replace(/[，、]/g, "");
+
 const signed = (v) => `${v > 0 ? "+" : ""}${v}`;
 
 const todayISO = () => {
   const d = new Date();
   const p = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+};
+
+// 4人の素点から、着順とポイントを求める（同点は順位点を均等に分ける）
+const buildEntries = (memberIds, nums) => {
+  const order = [0, 1, 2, 3].sort((a, b) => nums[b] - nums[a]);
+  const rankOf = {}, bonusOf = {};
+  let i = 0;
+  while (i < 4) {
+    let j = i;
+    while (j + 1 < 4 && nums[order[j + 1]] === nums[order[i]]) j++;
+    const shared = RANK_POINTS.slice(i, j + 1).reduce((a, b) => a + b, 0) / (j - i + 1);
+    for (let k = i; k <= j; k++) {
+      rankOf[order[k]] = i + 1;
+      bonusOf[order[k]] = shared;
+    }
+    i = j + 1;
+  }
+  // seat は席順（0=東 1=南 2=西 3=北）。入力画面の並び順がそのまま席順になる
+  return [0, 1, 2, 3].map((s) => ({
+    memberId: memberIds[s],
+    rank: rankOf[s],
+    raw: nums[s],
+    point: Math.round(((nums[s] - RETURN) / 1000 + bonusOf[s]) * 10) / 10,
+    seat: s,
+  }));
 };
 
 const formatDay = (iso) => {
@@ -1325,70 +2508,68 @@ const NUM = '"SF Mono", "Roboto Mono", Menlo, Consolas, monospace';
 
 const S = {
   page: {
-    minHeight: "100vh", color: INK,
+    minHeight: "100vh", color: T.ink,
     fontFamily: '-apple-system, "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif',
-    background: `radial-gradient(130% 70% at 50% -10%, #2C7159 0%, ${FELT} 46%, #143F31 100%)`,
+    background: "radial-gradient(120% 60% at 50% 0%, #1C1A17 0%, #111014 45%, #08080A 100%)",
     backgroundAttachment: "fixed",
   },
-  wrap: { maxWidth: 640, margin: "0 auto", padding: "16px 12px 40px" },
+  wrap: { maxWidth: 640, margin: "0 auto", padding: "calc(14px + env(safe-area-inset-top)) 12px calc(40px + env(safe-area-inset-bottom))" },
 
   header: { marginBottom: 16, color: "#fff" },
   headerTop: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 },
   brandRow: { display: "flex", alignItems: "center", gap: 12, minWidth: 0 },
   monogram: {
-    width: 46, height: 46, borderRadius: 12, flexShrink: 0,
-    background: "linear-gradient(150deg, #FFFFFF 0%, #EDE7DA 100%)",
-    boxShadow: "0 4px 14px rgba(0,0,0,.30), inset 0 1px 0 rgba(255,255,255,.95), inset 0 0 0 1px rgba(184,150,62,.30)",
+    width: 40, height: 40, borderRadius: 10, flexShrink: 0,
+    background: "linear-gradient(150deg, #FFFDF6 0%, #EFE7D4 100%)",
+    boxShadow: "0 3px 10px rgba(0,0,0,.40), inset 0 0 0 1px rgba(184,150,62,.55)",
     display: "flex", alignItems: "center", justifyContent: "center",
   },
-  monogramTile: { fontSize: 25, fontWeight: 700, color: FELT, lineHeight: 1, marginTop: 1 },
-  h1: { fontSize: 22, fontWeight: 800, margin: 0, letterSpacing: "0.08em", color: "#fff", textShadow: "0 1px 3px rgba(0,0,0,.28)" },
+  monogramTile: {
+    fontSize: 21, fontWeight: 900, color: FELT, lineHeight: 1, marginTop: 1,
+    fontFamily: MIN,
+  },
+  h1: {
+    fontSize: 20, fontWeight: 900, margin: 0, letterSpacing: "0.12em", fontFamily: MIN,
+    background: "linear-gradient(180deg, #FBF3DC 0%, #D9BE7A 100%)",
+    WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent",
+  },
   ruleBadge: {
-    display: "inline-flex", alignItems: "center", gap: 5, marginTop: 7,
-    fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", color: "#F0D488",
-    background: "rgba(0,0,0,.26)", border: "1px solid rgba(232,199,102,.40)",
-    padding: "3px 10px", borderRadius: 999,
+    display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0,
+    fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", color: "#E8CF8E",
+    background: "rgba(0,0,0,.20)", border: `1px solid rgba(216,183,106,.55)`,
+    padding: "6px 12px", borderRadius: 999,
   },
   ruleBadgeDot: { width: 5, height: 5, borderRadius: 3, background: T.goldHi, boxShadow: "0 0 5px #E8C766" },
-  tiles: { display: "flex", gap: 4, flexShrink: 0 },
-  tile: { width: 13, height: 19, borderRadius: 3, display: "block", boxShadow: "inset 0 -2px 0 rgba(0,0,0,.16)" },
 
   headerRule: {
     display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap", marginTop: 13,
     padding: "9px 12px", borderRadius: 11,
-    background: "rgba(0,0,0,.20)", border: "1px solid rgba(255,255,255,.10)",
+    background: "rgba(0,0,0,.38)", border: `1px solid ${T.lineSoft}`,
   },
-  rulePill: { fontSize: 11, color: "rgba(255,255,255,.80)", fontFamily: NUM, letterSpacing: "0.02em" },
-  ruleDivide: { width: 1, height: 13, background: "rgba(255,255,255,.20)", margin: "0 3px" },
+  rulePill: { fontSize: 11, color: T.sub, fontFamily: NUM, letterSpacing: "0.04em" },
+  ruleDivide: { width: 1, height: 13, background: T.lineSoft, margin: "0 3px" },
   ruleRank: { display: "flex", alignItems: "baseline", gap: 3 },
-  ruleRankLabel: { fontSize: 10, color: "rgba(255,255,255,.55)" },
-  ruleRankVal: { fontSize: 12.5, fontFamily: NUM, fontWeight: 700 },
+  ruleRankLabel: { fontSize: 10, color: T.faint },
+  ruleRankVal: { fontSize: 12, fontFamily: NUM, fontWeight: 700 },
 
-  tabs: { display: "flex", gap: 4, marginBottom: 16, background: "rgba(0,0,0,.24)", padding: 4, borderRadius: 12, border: "1px solid rgba(255,255,255,.08)" },
-  tab: { flex: 1, padding: "10px 2px", border: "none", background: "transparent", color: "rgba(255,255,255,.70)", borderRadius: 8, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit", fontWeight: 600, letterSpacing: "0.02em" },
-  tabOn: { background: T.paper, color: INK, fontWeight: 700, boxShadow: "0 2px 8px rgba(0,0,0,.24)" },
+  tabs: { display: "flex", gap: 3, marginBottom: 16, background: "rgba(0,0,0,.45)", padding: 5, borderRadius: 13, border: `1px solid ${T.line}` },
+  tab: { flex: 1, padding: "10px 2px", border: "none", background: "transparent", color: T.sub, borderRadius: 9, fontSize: 13.5, cursor: "pointer", fontFamily: MIN, fontWeight: 700, letterSpacing: "0.06em" },
+  tabOn: { background: "linear-gradient(180deg, rgba(216,183,106,.24) 0%, rgba(216,183,106,.07) 100%)", color: "#F5E3B0", boxShadow: "inset 0 0 0 1px rgba(216,183,106,.55)" },
 
-  card: { background: T.paper, borderRadius: T.radius, padding: 16, boxShadow: T.shadow },
-  section: { fontSize: 11.5, fontWeight: 700, color: T.sub, letterSpacing: "0.10em", marginBottom: 12, textTransform: "uppercase" },
-  back: { border: "none", background: "none", color: FELT, fontSize: 14, cursor: "pointer", padding: "2px 0 12px", fontFamily: "inherit", fontWeight: 600 },
+  card: { background: `linear-gradient(165deg, ${T.panelHi} 0%, ${T.panel} 100%)`, borderRadius: T.radius, padding: 16, boxShadow: T.shadow, border: `1px solid ${T.line}` },
+  section: { fontSize: 12, fontWeight: 700, color: "#F0E6CC", letterSpacing: "0.10em", marginBottom: 12, fontFamily: MIN },
+  back: { border: "none", background: "none", color: "#E8CF8E", fontSize: 14, cursor: "pointer", padding: "2px 0 12px", fontFamily: "inherit", fontWeight: 700 },
 
   miniLabel: { fontSize: 11, fontWeight: 700, color: T.sub, letterSpacing: "0.06em", marginBottom: 7 },
   scrollRow: { display: "flex", gap: 7, overflowX: "auto", paddingBottom: 6, marginBottom: 4 },
-  chip: { flexShrink: 0, padding: "8px 13px", border: `1px solid ${T.line}`, background: T.paperHi, color: "#4A4740", borderRadius: 9, fontSize: 13.5, cursor: "pointer", textAlign: "left", lineHeight: 1.35, fontWeight: 600, fontFamily: "inherit" },
-  chipOn: { background: FELT, color: "#fff", borderColor: FELT },
-  chipSub: { display: "block", fontSize: 10, fontWeight: 400, opacity: 0.72, marginTop: 1 },
+  chip: { flexShrink: 0, padding: "8px 14px", border: "1px solid rgba(60,50,30,.16)", background: "#FFFFFF", color: T.inkDark, borderRadius: 10, fontSize: 13.5, cursor: "pointer", textAlign: "left", lineHeight: 1.35, fontWeight: 700, fontFamily: "inherit" },
+  chipOn: { background: "linear-gradient(160deg, #FBEFC8 0%, #F5DFA0 100%)", color: "#2E2205", borderColor: "rgba(184,150,62,.55)", boxShadow: "inset 0 0 0 1px rgba(184,150,62,.30)" },
+  chipSub: { display: "block", fontSize: 10, fontWeight: 400, opacity: 0.70, marginTop: 2, fontFamily: NUM },
 
   dateRow: { display: "flex", alignItems: "center", gap: 10, margin: "4px 0 16px" },
-  dateInput: { padding: "7px 10px", border: `1px solid ${T.line}`, borderRadius: 8, fontSize: 14, color: INK, background: T.paperHi, fontFamily: NUM },
+  dateInput: { padding: "9px 11px", border: `1px solid ${T.line}`, borderRadius: 8, fontSize: 16, color: T.inkDark, background: "#fff", fontFamily: NUM },
 
-  inputHead: { display: "flex", fontSize: 11, color: T.faint, marginBottom: 6, paddingRight: 52, letterSpacing: "0.04em" },
   inputRow: { display: "flex", gap: 7, marginBottom: 7, alignItems: "center" },
-  select: { flex: 1, padding: "12px 8px", border: `1px solid ${T.line}`, borderRadius: 9, fontSize: 15, minWidth: 0, background: T.paperHi, color: INK, fontFamily: "inherit" },
-  scoreWrap: { position: "relative", width: 104, flexShrink: 0 },
-  scoreInput: { width: "100%", padding: "12px 9px", border: `1px solid ${T.line}`, borderRadius: 9, fontSize: 16, textAlign: "right", fontFamily: NUM, boxSizing: "border-box", background: T.paperHi },
-  scoreAuto: { background: "#F0F6F2", borderColor: "#BFD9C9" },
-  autoTag: { position: "absolute", top: -6, left: 7, background: FELT, color: "#fff", fontSize: 9, padding: "1px 5px", borderRadius: 4, letterSpacing: "0.04em" },
-  signBtn: { width: 40, height: 44, border: `1px solid ${T.line}`, background: T.paperHi, color: T.sub, borderRadius: 9, fontSize: 16, cursor: "pointer", flexShrink: 0 },
 
   totalBar: { display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderRadius: 10, fontSize: 14, margin: "12px 0 4px" },
   totalLabel: { fontSize: 11, color: T.sub, letterSpacing: "0.06em", fontWeight: 700 },
@@ -1397,36 +2578,40 @@ const S = {
 
   nameInput: { flex: 1, padding: "11px 12px", border: `1px solid ${T.line}`, borderRadius: 9, fontSize: 15, minWidth: 0, fontFamily: "inherit" },
   groupNameInput: { width: "100%", padding: "11px 12px", border: `1px solid ${T.line}`, borderRadius: 9, fontSize: 15, boxSizing: "border-box", fontFamily: "inherit" },
-  addBtn: { padding: "11px 18px", background: FELT, color: "#fff", border: "none", borderRadius: 9, fontSize: 15, cursor: "pointer", fontFamily: "inherit" },
-  primary: { width: "100%", padding: 15, background: `linear-gradient(180deg, #2A6B52 0%, ${FELT} 100%)`, color: "#fff", border: "none", borderRadius: 11, fontSize: 16, fontWeight: 700, cursor: "pointer", marginTop: 8, fontFamily: "inherit", boxShadow: "0 4px 14px rgba(20,50,38,.28), inset 0 1px 0 rgba(255,255,255,.14)", letterSpacing: "0.04em" },
-  primaryOff: { background: "#C4CBC4", cursor: "default", boxShadow: "none" },
-  secondary: { width: "100%", padding: 13, background: T.sink, color: "#5A5750", border: "none", borderRadius: 9, fontSize: 15, cursor: "pointer", marginTop: 10, fontFamily: "inherit" },
-  hint: { fontSize: 11.5, color: T.faint, margin: "10px 0 0", lineHeight: 1.6 },
-  err: { fontSize: 13, color: MINUS, margin: "10px 0 0" },
+  addBtn: { padding: "11px 18px", background: "rgba(255,255,255,.10)", color: T.ink, boxShadow: "inset 0 0 0 1px rgba(216,183,106,.35)", border: "none", borderRadius: 9, fontSize: 15, cursor: "pointer", fontFamily: "inherit" },
+  primary: { width: "100%", padding: 15, background: "#FFFFFF", color: T.inkDark, border: "none", borderRadius: 11, fontSize: 16, fontWeight: 700, cursor: "pointer", marginTop: 12, fontFamily: MIN, letterSpacing: "0.10em", boxShadow: "0 3px 12px rgba(0,0,0,.30)" },
+  primaryOff: { background: "rgba(255,255,255,.28)", color: "rgba(28,35,33,.45)", cursor: "default", boxShadow: "none" },
+  secondary: { width: "100%", padding: 13, background: T.sink, color: T.sub, border: "none", borderRadius: 9, fontSize: 15, cursor: "pointer", marginTop: 10, fontFamily: "inherit" },
+  hint: { fontSize: 11, color: T.faint, margin: "10px 0 0", lineHeight: 1.6 },
+  err: { fontSize: 13.5, color: "#F0A48E", margin: "10px 0 0" },
   empty: { fontSize: 14, color: T.faint, textAlign: "center", padding: "30px 0" },
 
   tableScroll: { overflowX: "auto", margin: "6px -6px 0" },
-  gTable: { width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: 14 },
-  gTh: { padding: "6px 5px", borderBottom: `1px solid ${T.line}`, textAlign: "center", whiteSpace: "nowrap", background: T.paper },
-  headName: { display: "inline-block", padding: "3px 11px", borderRadius: 11, color: "#fff", fontSize: 12, fontWeight: 700 },
-  gTd: { padding: "7px 5px", borderBottom: `1px solid ${T.lineSoft}`, textAlign: "center", whiteSpace: "nowrap" },
-  sticky: { position: "sticky", left: 0, zIndex: 1, background: T.paper, color: T.faint, fontSize: 11, fontFamily: NUM, boxShadow: `1px 0 0 ${T.lineSoft}` },
-  stickyHead: { position: "sticky", left: 0, zIndex: 2, color: T.faint, fontSize: 10 },
-  stickyFoot: { position: "sticky", left: 0, zIndex: 1, background: T.sink, boxShadow: `1px 0 0 ${T.lineSoft}` },
-  cellRank: { display: "block", fontSize: 10, fontWeight: 700, letterSpacing: "0.04em" },
+  gTable: { width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: 14, background: T.paper, borderRadius: 12, overflow: "hidden", color: T.inkDark },
+  gTh: { padding: "8px 5px", borderBottom: "1px solid rgba(60,50,30,.14)", textAlign: "center", whiteSpace: "nowrap", background: T.paper },
+  headName: { display: "inline-block", padding: 0, fontSize: 12, fontWeight: 700, fontFamily: MIN, letterSpacing: "0.04em", maxWidth: 76, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  gTd: { padding: "7px 8px", borderBottom: "1px solid rgba(60,50,30,.08)", textAlign: "center", whiteSpace: "nowrap" },
+  sticky: { position: "sticky", left: 0, zIndex: 1, background: T.paper, color: "#A9A49B", fontSize: 11, fontFamily: NUM, boxShadow: "1px 0 0 rgba(60,50,30,.08)" },
+  stickyHead: { position: "sticky", left: 0, zIndex: 2, background: T.paper, color: "#A9A49B", fontSize: 10 },
+  stickyFoot: { position: "sticky", left: 0, zIndex: 1, background: T.paper, boxShadow: "1px 0 0 rgba(60,50,30,.08)" },
   cellWin: { background: "linear-gradient(150deg, #FBEFC8 0%, #F5DFA0 100%)", boxShadow: "inset 0 0 0 1px rgba(184,150,62,.30)" },
-  crown: { fontSize: 9, marginRight: 1, verticalAlign: "1px" },
-  cellPt: { display: "block", fontSize: 16, fontWeight: 700, fontFamily: NUM, lineHeight: 1.25 },
-  cellRaw: { display: "block", fontSize: 11, fontFamily: NUM },
-  gFoot: { padding: "9px 5px", borderTop: `2px solid ${T.line}`, textAlign: "center", background: T.sink, whiteSpace: "nowrap", fontFamily: NUM, fontSize: 13 },
-  footLabel: { fontSize: 10, color: T.faint, textAlign: "left", fontFamily: "inherit", fontWeight: 700, letterSpacing: "0.06em" },
+  rankRibbon: { display: "block", fontSize: 10, fontWeight: 700, borderRadius: 4, padding: "2px 0", marginBottom: 4, letterSpacing: "0.04em", fontFamily: MIN },
+  headRing: { display: "inline-flex", padding: 2, borderRadius: "50%", boxShadow: "0 1px 4px rgba(0,0,0,.25)" },
+  chipDay: { display: "block", fontFamily: MIN, letterSpacing: "0.04em" },
+  cellPt: { display: "block", fontSize: 16, fontWeight: 700, fontFamily: NUM, lineHeight: 1.3, textAlign: "right" },
+  cellRule: { display: "block", height: 1, background: "rgba(60,50,30,.16)", margin: "3px 0" },
+  cellRuleWin: { background: "rgba(184,150,62,.45)" },
+  cellRaw: { display: "block", fontSize: 13.5, fontFamily: NUM, textAlign: "right", color: "#5A5750" },
+  cellUnit: { fontSize: 9, color: "#A9A49B" },
+  gFoot: { padding: "9px 5px", borderTop: "2px solid rgba(184,150,62,.35)", textAlign: "center", background: T.paper, whiteSpace: "nowrap", fontFamily: NUM, fontSize: 13.5 },
+  footLabel: { fontSize: 10, color: "#8A8578", textAlign: "left", fontFamily: MIN, fontWeight: 700, letterSpacing: "0.08em" },
   footTotal: { fontWeight: 700, fontSize: 17 },
 
   chartArea: { flex: 1, minWidth: 0 },
 
   totalHead: { display: "flex", alignItems: "baseline", justifyContent: "space-between", paddingBottom: 12, borderBottom: `1px solid ${T.lineSoft}`, marginBottom: 18 },
-  totalHeadMain: { fontSize: 17, fontWeight: 700, color: INK },
-  totalHeadSub: { fontSize: 11.5, color: T.faint, fontFamily: NUM },
+  totalHeadMain: { fontSize: 17, fontWeight: 700, color: "#F0E6CC", fontFamily: MIN, letterSpacing: "0.04em" },
+  totalHeadSub: { fontSize: 11, color: T.faint, fontFamily: NUM },
 
 
 
@@ -1436,18 +2621,19 @@ const S = {
   hlValue: { fontSize: 21, fontFamily: NUM, fontWeight: 700, lineHeight: 1.2 },
   hlSub: { fontSize: 11, color: T.sub, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
 
-  totalRow: { display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "13px 4px", background: "none", border: "none", borderBottom: `1px solid ${T.lineSoft}`, cursor: "pointer", textAlign: "left", fontFamily: "inherit" },
-  totalRank: { width: 20, height: 20, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: T.faint, fontFamily: NUM, flexShrink: 0 },
+  totalRow: { display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "12px 11px", marginBottom: 8, background: T.sink, border: `1px solid ${T.lineSoft}`, borderRadius: 12, cursor: "pointer", textAlign: "left", fontFamily: "inherit" },
+  totalRowTop: { background: "linear-gradient(150deg, rgba(216,183,106,.22) 0%, rgba(216,183,106,.06) 100%)", borderColor: "rgba(216,183,106,.55)" },
+  totalRank: { width: 24, height: 24, borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: T.faint, fontFamily: NUM, flexShrink: 0 },
   totalStripe: { width: 3, alignSelf: "stretch", borderRadius: 2, flexShrink: 0 },
   totalBody: { flex: 1, minWidth: 0 },
-  totalName: { display: "block", fontSize: 15.5, fontWeight: 700, color: INK },
-  totalMeta: { display: "block", fontSize: 11.5, color: T.faint, marginTop: 2, fontFamily: NUM },
+  totalName: { display: "block", fontSize: 16, fontWeight: 700, color: "#F0E6CC", fontFamily: MIN, letterSpacing: "0.04em" },
+  totalMeta: { display: "block", fontSize: 11, color: T.faint, marginTop: 2, fontFamily: NUM },
   totalPts: { textAlign: "right", flexShrink: 0 },
-  totalPtMain: { display: "block", fontSize: 18, fontWeight: 700, fontFamily: NUM },
-  totalPtSub: { display: "block", fontSize: 10.5, color: T.faint, fontFamily: NUM },
+  totalPtMain: { display: "block", fontSize: 19, fontWeight: 700, fontFamily: NUM },
+  totalPtSub: { display: "block", fontSize: 10, color: T.faint, fontFamily: NUM },
   chevron: { color: "#D5D2CB", fontSize: 17, flexShrink: 0 },
 
-  detailName: { fontSize: 22, fontWeight: 700, margin: "0 0 14px" },
+  detailName: { fontSize: 24, fontWeight: 900, margin: "0 0 14px", fontFamily: MIN, letterSpacing: "0.06em" },
   bigPt: { display: "flex", alignItems: "baseline", gap: 8, paddingBottom: 16, borderBottom: `1px solid ${T.lineSoft}`, marginBottom: 16 },
   bigPtLabel: { fontSize: 11, color: T.faint, letterSpacing: "0.06em", fontWeight: 700 },
   bigPtValue: { fontSize: 36, fontFamily: NUM, fontWeight: 700, lineHeight: 1 },
@@ -1455,45 +2641,189 @@ const S = {
   kpis: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 7, marginBottom: 22 },
   kpi: { background: T.sink, borderRadius: 9, padding: "11px 4px", textAlign: "center" },
   kpiL: { display: "block", fontSize: 10, color: T.faint, marginBottom: 4, letterSpacing: "0.04em" },
-  kpiV: { fontSize: 17, color: INK, display: "block", fontFamily: NUM, fontWeight: 700 },
+  kpiV: { fontSize: 17, color: "#F0E6CC", display: "block", fontFamily: NUM, fontWeight: 700 },
   rankBarRow: { display: "flex", alignItems: "center", gap: 9, marginBottom: 7 },
-  rankBarLabel: { fontSize: 11.5, width: 26, fontWeight: 700 },
-  rankBarTrack: { flex: 1, height: 7, background: "#EAE7DE", borderRadius: 4, overflow: "hidden" },
+  rankBarLabel: { fontSize: 11, width: 26, fontWeight: 700 },
+  rankBarTrack: { flex: 1, height: 9, background: "rgba(0,0,0,.45)", borderRadius: 5, overflow: "hidden" },
   rankBarFill: { height: "100%", borderRadius: 4 },
   rankBarVal: { fontSize: 11, color: T.faint, width: 74, textAlign: "right", fontFamily: NUM },
 
   memberRow: { display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: `1px solid ${T.lineSoft}` },
   memberStripe: { width: 3, height: 22, borderRadius: 2, flexShrink: 0 },
-  memberName: { flex: 1, fontSize: 15, minWidth: 0, color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  memberInputOn: { flex: 1, padding: "7px 9px", border: `1px solid ${FELT}`, borderRadius: 7, fontSize: 15, minWidth: 0, background: "#fff", fontFamily: "inherit", color: INK, outline: "none" },
+  memberName: { flex: 1, fontSize: 15, fontWeight: 700, minWidth: 0, color: "#F0E6CC", fontFamily: MIN, letterSpacing: "0.04em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  memberInputOn: { flex: 1, padding: "7px 9px", border: `1px solid ${FELT}`, borderRadius: 7, fontSize: 16, minWidth: 0, background: "#fff", fontFamily: "inherit", color: INK, outline: "none" },
   editBtn: { border: "none", background: "none", color: "#A9A49B", fontSize: 15, cursor: "pointer", padding: "3px 5px", lineHeight: 1, flexShrink: 0 },
-  editDone: { border: "none", background: FELT, color: "#fff", fontSize: 12.5, fontWeight: 700, borderRadius: 7, padding: "7px 11px", cursor: "pointer", flexShrink: 0, fontFamily: "inherit" },
-  editCancel: { border: "none", background: "none", color: T.sub, fontSize: 12.5, cursor: "pointer", padding: "7px 3px", flexShrink: 0, fontFamily: "inherit" },
+  editDone: { border: "none", background: "rgba(255,255,255,.12)", color: T.ink, fontSize: 12, fontWeight: 700, borderRadius: 7, padding: "7px 11px", cursor: "pointer", flexShrink: 0, fontFamily: "inherit" },
+  editCancel: { border: "none", background: "none", color: T.sub, fontSize: 12, cursor: "pointer", padding: "7px 3px", flexShrink: 0, fontFamily: "inherit" },
 
-  ioStat: { display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12, color: "#6E6A63", padding: "10px 12px", background: T.sink, borderRadius: 9, marginBottom: 12 },
-  verTag: { fontSize: 10, fontWeight: 700, color: FELT, background: "#E6EFE9", padding: "1px 6px", borderRadius: 5, verticalAlign: "2px", letterSpacing: "0.04em" },
-  ioNum: { fontFamily: NUM, fontSize: 14, color: INK, margin: "0 2px" },
-  ioMsg: { fontSize: 12.5, margin: "10px 0 0", lineHeight: 1.5 },
+  ioStat: { display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12, color: T.sub, padding: "10px 12px", background: T.sink, borderRadius: 9, marginBottom: 12 },
+  verTag: { fontSize: 10, fontWeight: 700, color: "#2E2205", background: T.goldHi, padding: "1px 6px", borderRadius: 5, verticalAlign: "2px", marginLeft: 6 },
+  ioNum: { fontFamily: NUM, fontSize: 14, color: "#F0E6CC", margin: "0 2px" },
+  ioMsg: { fontSize: 12, margin: "10px 0 0", lineHeight: 1.5 },
   memberCount: { fontSize: 11, color: T.faint, whiteSpace: "nowrap", fontFamily: NUM },
   xBtn: { border: "none", background: "none", color: "#C4C0B8", fontSize: 17, cursor: "pointer", padding: "2px 6px", lineHeight: 1, flexShrink: 0 },
 
   groupRow: { display: "flex", alignItems: "center", gap: 10, padding: "11px 0", borderBottom: `1px solid ${T.lineSoft}` },
   groupName: { fontSize: 15, fontWeight: 700 },
   groupMembers: { display: "flex", flexWrap: "wrap", gap: 9, marginTop: 4 },
-  groupTag: { display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, color: T.sub },
+  groupTag: { display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: T.sub },
   tagDot: { width: 7, height: 7, borderRadius: 4, display: "inline-block", flexShrink: 0 },
   groupForm: { background: T.sink, borderRadius: 10, padding: 14, marginTop: 12 },
   pickGrid: { display: "flex", flexWrap: "wrap", gap: 6 },
   pickBtn: { display: "flex", alignItems: "center", gap: 5, padding: "8px 13px", border: `1px solid ${T.line}`, background: T.paperHi, color: "#4A4740", borderRadius: 18, fontSize: 14, cursor: "pointer", fontFamily: "inherit" },
-  pickNum: { fontSize: 9.5, background: "rgba(255,255,255,.32)", borderRadius: 7, padding: "1px 5px", fontFamily: NUM },
+  pickNum: { fontSize: 10, background: "rgba(255,255,255,.32)", borderRadius: 7, padding: "1px 5px", fontFamily: NUM },
 
-  overlay: { position: "fixed", inset: 0, background: "rgba(28,35,33,.5)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, zIndex: 100 },
-  dialog: { background: "#fff", borderRadius: 16, padding: 22, maxWidth: 344, width: "100%", boxShadow: "0 12px 40px rgba(0,0,0,.22)" },
-  dialogTitle: { fontSize: 16, fontWeight: 700, margin: "0 0 12px", lineHeight: 1.45 },
-  dialogBody: { background: T.sink, borderRadius: 9, padding: "11px 13px", fontSize: 12.5, color: "#5A5750", margin: "0 0 12px", fontFamily: NUM, whiteSpace: "pre-wrap", lineHeight: 1.85 },
+  overlay: { position: "fixed", inset: 0, background: "rgba(3,16,11,.68)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, zIndex: 100 },
+  dialog: { background: `linear-gradient(165deg, ${T.panelHi} 0%, ${T.panel} 100%)`, border: `1px solid ${T.line}`, borderRadius: 16, padding: 20, maxWidth: 360, width: "100%", boxShadow: "0 14px 44px rgba(0,0,0,.55)" },
+  dialogTitle: { fontSize: 17, fontWeight: 700, margin: "0 0 12px", lineHeight: 1.45, color: "#F0E6CC", fontFamily: MIN, letterSpacing: "0.04em" },
+  dialogBody: { background: T.sink, borderRadius: 9, padding: "11px 13px", fontSize: 12, color: T.sub, margin: "0 0 12px", fontFamily: NUM, whiteSpace: "pre-wrap", lineHeight: 1.85 },
   dialogNote: { fontSize: 12, color: T.faint, margin: "0 0 18px", lineHeight: 1.5 },
-  dialogCancel: { flex: 1, padding: 13, background: T.sink, color: "#5A5750", border: "none", borderRadius: 9, fontSize: 15, cursor: "pointer", fontFamily: "inherit" },
+  dialogCancel: { flex: 1, padding: 13, background: T.sink, color: T.sub, border: "none", borderRadius: 9, fontSize: 15, cursor: "pointer", fontFamily: "inherit" },
   dialogDelete: { flex: 1, padding: 13, background: MINUS, color: "#fff", border: "none", borderRadius: 9, fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" },
+  dialogOk: { flex: 1, padding: 13, background: "#FFFFFF", color: T.inkDark, border: "none", borderRadius: 9, fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" },
+
+  // 期間タグ
+  periodTag: { marginLeft: 8, fontSize: 11, fontWeight: 700, color: T.gold, background: "rgba(184,150,62,.12)", border: `1px solid rgba(184,150,62,.35)`, padding: "2px 8px", borderRadius: 999, verticalAlign: "2px" },
+
+  // 半荘の修正
+  editLabel: { display: "block", fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: "0.06em", margin: "12px 0 5px" },
+  editInput: { width: "100%", boxSizing: "border-box", padding: "10px 12px", fontSize: 16, border: `1px solid ${T.line}`, borderRadius: 9, background: "#fff", fontFamily: "inherit", color: INK },
+  editRow: { display: "flex", alignItems: "center", gap: 8, marginBottom: 7 },
+  editName: { width: 78, fontSize: 13.5, fontWeight: 700, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  editScore: { flex: 1, minWidth: 0, padding: "10px 12px", fontSize: 16, textAlign: "right", border: `1px solid ${T.line}`, borderRadius: 9, background: "#fff", fontFamily: NUM, color: INK },
+  editSign: { width: 38, flexShrink: 0, padding: "10px 0", background: T.sink, border: `1px solid ${T.line}`, borderRadius: 9, fontSize: 14, cursor: "pointer", fontFamily: "inherit", color: T.sub },
+  editSum: { marginTop: 10, fontSize: 12, color: T.sub, textAlign: "right" },
+  editSumHint: { color: T.faint, fontFamily: NUM },
+
+  // シーズン
+  seasonCard: { background: T.sink, borderRadius: 12, padding: "13px 14px", border: `1px solid ${T.lineSoft}`, marginBottom: 9 },
+  seasonCardHead: { display: "flex", alignItems: "center", gap: 8, marginBottom: 9 },
+  seasonName: { fontSize: 13.5, fontWeight: 700, color: "#F0E6CC", fontFamily: MIN, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  seasonState: { fontSize: 10, fontWeight: 700, flexShrink: 0, color: T.gold, background: "rgba(184,150,62,.12)", border: `1px solid rgba(184,150,62,.35)`, padding: "2px 8px", borderRadius: 999 },
+  seasonStateOn: { color: PLUS_D, background: "rgba(127,214,160,.14)", border: "1px solid rgba(127,214,160,.40)" },
+  seasonChamp: { display: "flex", alignItems: "center", gap: 9, padding: "9px 10px", borderRadius: 9, background: "linear-gradient(150deg, #FBEFC8 0%, #F5DFA0 100%)", boxShadow: "inset 0 0 0 1px rgba(184,150,62,.30)" },
+  seasonChampCrown: { fontSize: 15, color: "#8A6D12" },
+  seasonChampName: { fontSize: 15, fontWeight: 700, flex: 1, minWidth: 0, color: "#2E2205", fontFamily: MIN, letterSpacing: "0.04em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  seasonChampPt: { fontSize: 15, fontWeight: 700, fontFamily: NUM },
+  pillRow: { display: "flex", flexWrap: "wrap", gap: 5, marginTop: 9 },
+  pill: { fontSize: 10, background: "rgba(0,0,0,.45)", border: `1px solid ${T.lineSoft}`, borderRadius: 999, padding: "4px 9px", color: T.sub },
+  openHint: { display: "flex", justifyContent: "flex-end", fontSize: 10, color: T.gold, fontWeight: 700, marginTop: 8 },
+
+  // 表彰状
+  certMask: { position: "fixed", inset: 0, background: "rgba(3,16,11,.74)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "20px 14px", zIndex: 120, overflowY: "auto" },
+  certSheet: { width: "100%", maxWidth: 420, paddingBottom: 24 },
+  certBack: { display: "block", marginBottom: 12, padding: "9px 13px", background: "rgba(0,0,0,.60)", border: `1px solid ${T.line}`, borderRadius: 9, fontSize: 12, fontWeight: 700, color: "#E8CF8E", cursor: "pointer", fontFamily: "inherit" },
+  provNote: { background: "rgba(127,214,160,.12)", border: "1px solid rgba(127,214,160,.35)", borderRadius: 9, padding: "10px 13px", fontSize: 11, color: PLUS_D, marginBottom: 12, lineHeight: 1.6 },
+  cert: { position: "relative", background: "linear-gradient(165deg, #FFFDF6 0%, #F6F1E2 100%)", borderRadius: 14, padding: "18px 16px", boxShadow: "inset 0 0 0 1.5px rgba(184,150,62,.45), 0 6px 24px rgba(0,0,0,.25)" },
+  certInner: { position: "absolute", inset: 7, borderRadius: 9, border: "1px solid rgba(184,150,62,.22)", pointerEvents: "none" },
+  certHead: { textAlign: "center", fontSize: 11, fontWeight: 700, letterSpacing: "0.22em", color: "#A6842F", marginBottom: 3, fontFamily: MIN },
+  certSeason: { textAlign: "center", fontSize: 12, fontWeight: 700, color: "#5A5750", marginBottom: 14, fontFamily: MIN },
+  champRow: { textAlign: "center", padding: "8px 0 12px" },
+  champCrown: { fontSize: 26, color: T.goldHi, lineHeight: 1, textShadow: "0 1px 0 rgba(154,123,24,.5)" },
+  champCrownProv: { color: "#D8CFB4", textShadow: "none" },
+  champLabel: { fontSize: 11, fontWeight: 700, letterSpacing: "0.16em", color: "#A6842F", marginTop: 5, fontFamily: MIN },
+  champLabelProv: { color: "#8A8578" },
+  champName: { fontSize: 28, fontWeight: 900, color: "#22301F", margin: "5px 0 3px", letterSpacing: "0.08em", fontFamily: MIN },
+  champPt: { fontSize: 17, fontWeight: 700, fontFamily: NUM },
+  champMeta: { fontSize: 11, color: "#8A8578", marginTop: 4, fontFamily: NUM },
+  certHair: { height: 1, background: "linear-gradient(90deg, transparent, rgba(184,150,62,.5), transparent)", margin: "12px 0" },
+  awRow: { display: "flex", alignItems: "center", gap: 10, background: "rgba(255,255,255,.7)", border: "1px solid rgba(184,150,62,.20)", borderRadius: 10, padding: "9px 11px" },
+  awIcon: {
+    width: 32, height: 32, flexShrink: 0, borderRadius: "50%",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    fontSize: 15, lineHeight: 1, color: "#5A4A12",
+    background: "linear-gradient(150deg, #F7E7B4 0%, #DFC078 55%, #C4A24E 100%)",
+    boxShadow: "0 1px 3px rgba(60,50,30,.28), inset 0 1px 0 rgba(255,255,255,.75)",
+  },
+  awLabel: { fontSize: 10, color: "#8A8578", letterSpacing: "0.06em" },
+  awName: { fontSize: 13.5, fontWeight: 700, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  awVal: { fontSize: 15, fontWeight: 700, fontFamily: NUM, color: "#3A3B33", flexShrink: 0 },
+  stdRow: { display: "flex", alignItems: "center", gap: 9, padding: "7px 0", borderTop: "1px solid rgba(60,50,30,.07)" },
+  stdNo: { width: 20, textAlign: "center", fontSize: 11, fontWeight: 700, fontFamily: NUM, color: "#8A8578", flexShrink: 0 },
+  stdNoTop: { color: "#9A7B18" },
+  stdName: { flex: 1, fontSize: 13.5, fontWeight: 700, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  stdSub: { fontSize: 10, color: "#8A8578", fontFamily: NUM, flexShrink: 0 },
+  stdPt: { fontSize: 15, fontWeight: 700, fontFamily: NUM, flexShrink: 0, width: 62, textAlign: "right" },
+  headCell: { display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 4 },
+  avatarImg: { borderRadius: "50%", display: "block", objectFit: "cover", background: "#fff", boxShadow: "0 1px 3px rgba(60,50,30,.20)" },
+  avatarFallback: { borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, flexShrink: 0, boxShadow: "0 1px 3px rgba(60,50,30,.20)" },
+  avatarBtn: { border: "none", background: "none", padding: 0, marginRight: 9, cursor: "pointer", flexShrink: 0, lineHeight: 0 },
+  avatarGrid: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, margin: "6px 0 14px" },
+  avatarCell: { position: "relative", padding: "8px 2px 7px", borderRadius: 11, border: "1px solid rgba(60,50,30,.16)", background: "#FFFFFF", cursor: "pointer", fontFamily: "inherit" },
+  avatarCellOn: { borderColor: "rgba(184,150,62,.60)", background: "linear-gradient(160deg, #FBEFC8 0%, #F5DFA0 100%)", boxShadow: "inset 0 0 0 1.5px rgba(184,150,62,.35)" },
+  avatarCellImg: { width: 46, height: 46, borderRadius: "50%", display: "block", margin: "0 auto" },
+  avatarCellLabel: { display: "block", fontSize: 10, color: "#5A5750", marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  avatarTaken: { position: "absolute", top: 4, right: 4, fontSize: 9, color: "#FFFFFF", background: "rgba(60,50,30,.62)", borderRadius: 999, padding: "1px 6px" },
+  sortChip: { flexShrink: 0, padding: "7px 14px", borderRadius: 999, border: "1px solid rgba(60,50,30,.16)", background: "#FFFFFF", fontSize: 12, fontWeight: 700, color: T.inkDark, cursor: "pointer", fontFamily: "inherit" },
+  sortChipOn: { background: "linear-gradient(160deg, #FBEFC8 0%, #F5DFA0 100%)", color: "#2E2205", borderColor: "rgba(184,150,62,.55)" },
+  seatStatRow: { display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderTop: `1px solid ${T.lineSoft}` },
+  seatStatName: { fontSize: 12, fontWeight: 700, width: 34, flexShrink: 0, color: T.gold },
+  seatStatNameE: { color: MINUS_D },
+  seatStatBar: { flex: 1, height: 20, borderRadius: 5, background: T.sink, position: "relative", overflow: "hidden" },
+  seatStatSeg: { position: "absolute", top: 0, bottom: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff", fontFamily: NUM },
+  seatStatPt: { fontSize: 12, fontWeight: 700, fontFamily: NUM, width: 62, textAlign: "right", flexShrink: 0 },
+  seatStatBest: { color: T.gold, marginLeft: 3, fontSize: 10 },
+  seatStatNone: { fontSize: 12, color: T.faint, width: 62, textAlign: "right", flexShrink: 0, fontFamily: NUM },
+  certToTotal: { width: "100%", marginTop: 12, padding: 13, borderRadius: 10, border: "none", background: "#FFFFFF", color: T.inkDark, fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: MIN, letterSpacing: "0.08em" },
+  seasonMeta: { fontSize: 11, color: T.faint, fontFamily: NUM, marginTop: 3 },
+  seasonBtn: { flexShrink: 0, padding: "6px 12px", background: T.sink, border: `1px solid ${T.line}`, borderRadius: 8, fontSize: 12, cursor: "pointer", fontFamily: "inherit", color: T.ink },
+  seasonDates: { display: "flex", gap: 10 },
+
+  // 記録集
+  recBoard: { background: T.sink, borderRadius: 12, padding: "12px 14px", marginBottom: 10, border: `1px solid ${T.lineSoft}` },
+  recBoardHead: { fontSize: 12, fontWeight: 700, color: "#E8CF8E", letterSpacing: "0.10em", marginBottom: 9, fontFamily: MIN },
+  recCrown: { color: T.gold, marginRight: 5, fontSize: 12 },
+  recRow: { display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderTop: `1px solid ${T.lineSoft}` },
+  recRowTop: { background: "linear-gradient(90deg, rgba(216,183,106,.22) 0%, rgba(216,183,106,0) 78%)", borderRadius: 7, padding: "7px 8px", margin: "0 -8px" },
+  recNo: { width: 17, flexShrink: 0, fontSize: 11, fontWeight: 700, color: T.faint, fontFamily: NUM, textAlign: "center" },
+  recNoTop: { color: T.goldHi },
+  recName: { fontSize: 13.5, fontWeight: 700, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  recDate: { fontSize: 10, color: T.faint, fontFamily: NUM, marginLeft: "auto", flexShrink: 0 },
+  recVal: { fontSize: 14, fontWeight: 700, fontFamily: NUM, color: "#F0E6CC", flexShrink: 0, marginLeft: 8 },
+  recValTop: { fontSize: 16, color: T.goldHi },
+  recUnit: { fontSize: 10, fontWeight: 400, color: T.faint },
+  recStreakLabel: { fontSize: 11, color: T.sub, width: 62, flexShrink: 0 },
+  recNow: { fontSize: 10, fontWeight: 700, color: "#0E3527", background: PLUS_D, border: "none", padding: "3px 8px", borderRadius: 999, marginLeft: 8, flexShrink: 0 },
+  recGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 },
+  recCard: { background: T.sink, border: `1px solid ${T.lineSoft}`, borderRadius: 11, padding: "11px 12px" },
+  recCardLabel: { display: "block", fontSize: 10, color: T.faint, letterSpacing: "0.04em", marginBottom: 3 },
+  recCardVal: { display: "block", fontSize: 19, fontWeight: 700, fontFamily: NUM, lineHeight: 1.2 },
+  recCardSub: { display: "block", fontSize: 10, color: T.faint, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+
+  // 3ステップ入力
+  stepBar: { display: "flex", gap: 6, marginBottom: 16 },
+  stepChip: { flex: 1, textAlign: "center", fontSize: 10, fontWeight: 700, color: T.faint, padding: "6px 2px", borderRadius: 8, background: T.sink, border: `1px solid ${T.lineSoft}` },
+  stepChipOn: { background: "linear-gradient(180deg, rgba(216,183,106,.30) 0%, rgba(216,183,106,.10) 100%)", color: "#F5E3B0", borderColor: "rgba(216,183,106,.65)" },
+  stepChipDone: { background: "rgba(127,214,160,.14)", color: PLUS_D, borderColor: "rgba(127,214,160,.35)" },
+  stepNo: { display: "block", fontSize: 9, opacity: .7, fontWeight: 400 },
+  stepBtnRow: { display: "flex", gap: 9, marginTop: 14 },
+  stepBack: { flex: 1, padding: 13, borderRadius: 10, border: `1px solid ${T.line}`, background: T.sink, fontFamily: "inherit", fontSize: 15, fontWeight: 700, color: T.sub, cursor: "pointer" },
+
+  groupPick: { display: "block", width: "100%", textAlign: "left", padding: "13px 15px", marginBottom: 8, borderRadius: 11, border: "1px solid rgba(60,50,30,.16)", background: "#FFFFFF", fontFamily: MIN, fontSize: 15, fontWeight: 700, color: T.inkDark, letterSpacing: "0.04em", cursor: "pointer" },
+  groupPickOn: { background: "linear-gradient(160deg, #FBEFC8 0%, #F5DFA0 100%)", color: "#2E2205", borderColor: "rgba(184,150,62,.55)", boxShadow: "inset 0 0 0 1px rgba(184,150,62,.30)" },
+  groupPickSub: { display: "block", fontSize: 11, fontWeight: 400, opacity: .72, marginTop: 3 },
+  orLine: { display: "flex", alignItems: "center", gap: 10, margin: "16px 0 12px", color: T.faint, fontSize: 11 },
+  memberGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 },
+  memberPick: { position: "relative", padding: "13px 8px", borderRadius: 10, border: "1px solid rgba(60,50,30,.16)", background: "#FFFFFF", fontFamily: MIN, fontSize: 15, fontWeight: 700, color: T.inkDark, cursor: "pointer" },
+  memberPickOn: { background: "linear-gradient(160deg, #FBEFC8 0%, #F5DFA0 100%)", borderColor: "rgba(184,150,62,.55)", color: "#2E2205" },
+  memberPickNo: { position: "absolute", top: 5, right: 7, fontSize: 10, color: "#FFFFFF", background: "#8A6D12", border: "none", borderRadius: 999, padding: "0 5px", fontWeight: 700 },
+
+  tableWrap: { position: "relative", background: "radial-gradient(120% 100% at 50% 20%, #2A6B52, #0E2C22)", borderRadius: 16, padding: 12, aspectRatio: "1 / 0.98", boxShadow: "inset 0 0 0 2px rgba(216,183,106,.45), 0 8px 26px rgba(0,0,0,.55)" },
+  seatBox: { position: "absolute", width: "43%", background: `linear-gradient(165deg, #FFFDF6 0%, ${T.paperLo} 100%)`, borderRadius: 10, padding: "7px 8px", textAlign: "center", border: "none", fontFamily: "inherit", cursor: "pointer", boxShadow: "0 3px 10px rgba(0,0,0,.35), inset 0 0 0 1px rgba(184,150,62,.30)" },
+  seatBoxTall: { minHeight: 85, display: "flex", flexDirection: "column", justifyContent: "center" },
+  seatBoxSel: { boxShadow: "0 0 0 2.5px rgba(243,214,143,.95), 0 3px 12px rgba(0,0,0,.40)" },
+  seatWind: { display: "block", fontSize: 10, fontWeight: 700, color: T.gold, letterSpacing: "0.06em", whiteSpace: "nowrap" },
+  seatWindE: { color: "#E8897A" },
+  seatName: { display: "block", fontSize: 13.5, fontWeight: 700, marginTop: 3, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  seatFaceRow: { display: "flex", alignItems: "center", gap: 7, minWidth: 0 },
+  seatInfo: { display: "flex", flexDirection: "column", minWidth: 0, flex: 1, textAlign: "left" },
+  seatScoreWrap: { display: "flex", gap: 4, marginTop: 4 },
+  seatScore: { flex: 1, minWidth: 0, padding: "7px 6px", textAlign: "right", fontSize: 16, border: "1px solid rgba(60,50,30,.18)", borderRadius: 7, background: "#fff", fontFamily: NUM, color: T.inkDark },
+  seatScoreAuto: { background: "linear-gradient(150deg, #FBEFC8 0%, #F5DFA0 100%)", borderColor: "rgba(184,150,62,.5)" },
+  seatSign: { width: 28, flexShrink: 0, padding: 0, background: "rgba(60,50,30,.10)", border: "1px solid rgba(60,50,30,.18)", borderRadius: 7, fontSize: 12, cursor: "pointer", fontFamily: "inherit", color: "#5A5750" },
+  tableCenter: { position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", textAlign: "center", width: "30%" },
+  stepGuide: { fontSize: 11, color: T.sub, margin: "-3px 0 10px", lineHeight: 1.6 },
+  rotateBtn: { width: "100%", marginTop: 12, padding: 11, borderRadius: 10, border: `1px solid ${T.line}`, background: T.sink, fontFamily: "inherit", fontSize: 13.5, fontWeight: 700, color: T.sub, cursor: "pointer" },
 };
 
 
