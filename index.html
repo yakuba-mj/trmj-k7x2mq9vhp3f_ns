@@ -622,16 +622,6 @@ function MLeagueTracker() {
   const diff = inputTotal - TOTAL;
 
   // 3人ぶん入っていれば、残り1人は自動で決まる
-  const autoIndex = useMemo(() => {
-    if (filledCount !== 3) return -1;
-    return scores.findIndex((s) => s.trim() === "" || s.trim() === "-" || !Number.isFinite(Number(s)));
-  }, [scores, filledCount]);
-
-  const autoValue = useMemo(() => {
-    if (autoIndex < 0) return null;
-    return TOTAL - scores.reduce((a, s, i) => (i === autoIndex ? a : a + (Number(s) || 0)), 0);
-  }, [autoIndex, scores]);
-
   const setScore = (i, raw) => {
     const v = toHalf(raw);
     if (v !== "" && !/^-?\d*$/.test(v)) return;
@@ -646,13 +636,33 @@ function MLeagueTracker() {
     }
   };
 
-  // 入力欄から離れたときだけ4人目を確定させる（入力途中では計算しない）
-  const handleBlur = () => {
-    if (autoIndex < 0 || autoValue == null) return;
+  // 入力欄から離れたときに、末尾の00を補う（125 → 12500）。
+  // すでに3桁を超える入力や、マイナスの符号だけの場合はそのまま。
+  const expandScore = (v) => {
+    const t = v.trim();
+    if (t === "" || t === "-") return t;
+    const neg = t.startsWith("-");
+    const digits = neg ? t.slice(1) : t;
+    if (digits === "" || digits.length > 3) return t;
+    return (neg ? "-" : "") + digits + "00";
+  };
+
+  // 入力欄から離れたとき、00を補ってから4人目を確定させる（入力途中では計算しない）
+  const handleBlur = (i) => {
     const s = [...scores];
-    s[autoIndex] = String(autoValue);
+    s[i] = expandScore(s[i]);
+    if (autoFilled >= 0 && autoFilled !== i) { s[autoFilled] = ""; }
     setScores(s);
-    setAutoFilled(autoIndex);
+    setAutoFilled(-1);
+
+    const filled = s.filter((x) => x.trim() !== "" && x.trim() !== "-" && Number.isFinite(Number(x))).length;
+    if (filled !== 3) return;
+    const idx = s.findIndex((x) => x.trim() === "" || x.trim() === "-" || !Number.isFinite(Number(x)));
+    if (idx < 0) return;
+    const val = TOTAL - s.reduce((a, x, k) => (k === idx ? a : a + (Number(x) || 0)), 0);
+    s[idx] = String(val);
+    setScores(s);
+    setAutoFilled(idx);
   };
 
   // ===== 記録 =====
@@ -708,27 +718,6 @@ function MLeagueTracker() {
   };
 
   // ===== 集計 =====
-  // 家別の成績（席順が記録されている半荘だけを対象にする）
-  const seatStatsFor = (id, gameList) => {
-    const src = gameList || games;
-    const seats = [0, 1, 2, 3].map(() => ({ n: 0, point: 0, sumRank: 0, ranks: [0, 0, 0, 0] }));
-    let has = false;
-    src.forEach((g) => {
-      const e = g.entries.find((x) => x.memberId === id);
-      if (!e || e.seat == null) return;
-      has = true;
-      const c = seats[e.seat];
-      c.n++;
-      c.point = round1(c.point + e.point);
-      c.sumRank += e.rank;
-      c.ranks[e.rank - 1]++;
-    });
-    if (!has) return null;
-    const withN = seats.filter((c) => c.n > 0);
-    const best = withN.length ? Math.max(...withN.map((c) => c.point)) : null;
-    return { seats, best };
-  };
-
   const statsFor = (id, gameList) => {
     const src = gameList || games;
     const rows = [];
@@ -1334,57 +1323,6 @@ function MLeagueTracker() {
               ))}
               <p style={S.hint}>最高 {signed(st.best)}pt ／ 最低 {signed(st.worst)}pt</p>
 
-              {/* 家別の成績 */}
-              {(() => {
-                const ss = seatStatsFor(detailId, totalGames);
-                if (!ss) return null;
-                return (
-                  <>
-                    <div style={S.section}>家別の着順分布</div>
-                    {ss.seats.map((c, i) => (
-                      <div key={i} style={S.seatStatRow}>
-                        <span style={{ ...S.seatStatName, ...(i === 0 ? S.seatStatNameE : {}) }}>{WINDS[i]}家</span>
-                        {c.n === 0 ? (
-                          <>
-                            <div style={{ ...S.seatStatBar, background: T.sink }} />
-                            <span style={S.seatStatNone}>—</span>
-                          </>
-                        ) : (
-                          <>
-                            <div style={S.seatStatBar}>
-                              {(() => {
-                                let left = 0;
-                                return c.ranks.map((cnt, r) => {
-                                  const w = (cnt / c.n) * 100;
-                                  const seg = (
-                                    <div key={r} style={{
-                                      ...S.seatStatSeg, left: `${left}%`, width: `${w}%`,
-                                      background: RANK_INK[r],
-                                    }}>
-                                      {w >= 14 ? `${Math.round(w)}` : ""}
-                                    </div>
-                                  );
-                                  left += w;
-                                  return seg;
-                                });
-                              })()}
-                            </div>
-                            <span style={{ ...S.seatStatPt, color: c.point >= 0 ? PLUS_D : MINUS_D }}>
-                              {signed(c.point)}
-                              {ss.best != null && c.point === ss.best && c.point > 0 && <span style={S.seatStatBest}>◎</span>}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    ))}
-                    <p style={S.hint}>
-                      帯は着順の内訳（金＝1位・緑＝2位・骨白＝3位・朱＝4位）。右は席ごとの合計ptで、
-                      一番稼いでいる席に◎が付きます。
-                    </p>
-                  </>
-                );
-              })()}
-
               <div style={S.section}>通算ポイントの推移</div>
               <Chart ids={[detailId]} gameList={totalGames} />
             </>
@@ -1450,7 +1388,7 @@ function MLeagueTracker() {
             <>
               {/* 進捗 */}
               <div style={S.stepBar}>
-                {[["メンバー", 1], ["座り順", 2], ["点数", 3]].map(([label, n]) => (
+                {[["メンバー", 1], ["点数", 2]].map(([label, n]) => (
                   <div key={n} style={{
                     ...S.stepChip,
                     ...(step === n ? S.stepChipOn : step > n ? S.stepChipDone : {}),
@@ -1515,97 +1453,48 @@ function MLeagueTracker() {
                   <button className="press"
                     style={{ ...S.primary, ...(seats.filter((x) => x != null).length === 4 ? {} : S.primaryOff) }}
                     onClick={() => { if (seats.every((x) => x != null)) { setStep(2); setErr(""); } }}>
-                    座り順へ　›
+                    点数入力へ　›
                   </button>
                 </>
               )}
 
-              {/* ========== STEP 2: 座り順 ========== */}
+              {/* ========== STEP 2: 点数 ========== */}
               {step === 2 && (
                 <>
-                  <div style={S.miniLabel}>起家（東家）から反時計回りに並びます</div>
-                  <p style={S.stepGuide}>
-                    2人の名前をタップすると席を入れ替えられます。
-                  </p>
-                  <div style={S.tableWrap}>
-                    {SEAT_POS.map((pos, i) => (
-                      <button key={i}
-                        style={{ ...S.seatBox, ...S.seatBoxTall, ...pos.style, ...(swapFrom === i ? S.seatBoxSel : {}) }}
-                        onClick={() => {
-                          if (swapFrom == null) { setSwapFrom(i); return; }
-                          if (swapFrom === i) { setSwapFrom(null); return; }
-                          const n = [...seats];
-                          [n[swapFrom], n[i]] = [n[i], n[swapFrom]];
-                          setSeats(n);
-                          setSwapFrom(null);
-                        }}>
-                        <span style={S.seatFaceRow}>
-                          <Avatar id={seats[i]} size={34} />
-                          <span style={S.seatInfo}>
-                            <span style={{ ...S.seatWind, ...(i === 0 ? S.seatWindE : {}) }}>
-                              {WINDS[i]}家{i === 0 ? "・起家" : ""}
-                            </span>
-                            <span style={{ ...S.seatName, color: memberColor(seats[i]), marginTop: 1, textAlign: "left" }}>
-                              {memberName(seats[i])}
-                            </span>
-                          </span>
-                        </span>
-                      </button>
-                    ))}
-                    <div style={S.tableCenter} />
-                  </div>
-
-                  <button style={S.rotateBtn}
-                    onClick={() => { setSeats([seats[1], seats[2], seats[3], seats[0]]); setSwapFrom(null); }}>
-                    ⟳ 親を次へ（いまの南家が東家に）
-                  </button>
-
-                  <div style={S.stepBtnRow}>
-                    <button style={S.stepBack} onClick={() => { setStep(1); setSwapFrom(null); }}>‹ 戻る</button>
-                    <button className="press" style={{ ...S.primary, flex: 2, marginTop: 0 }}
-                      onClick={() => { setStep(3); setSwapFrom(null); }}>点数入力へ　›</button>
-                  </div>
-                </>
-              )}
-
-              {/* ========== STEP 3: 点数 ========== */}
-              {step === 3 && (
-                <>
                   <div style={S.miniLabel}>終局時の点数を入れる</div>
-                  <div style={S.tableWrap}>
-                    {SEAT_POS.map((pos, i) => (
-                      <div key={i} style={{ ...S.seatBox, ...pos.style, cursor: "default" }}>
-                        <span style={S.seatFaceRow}>
-                          <Avatar id={seats[i]} size={34} />
-                          <span style={S.seatInfo}>
-                            <span style={{ ...S.seatWind, ...(i === 0 ? S.seatWindE : {}) }}>{WINDS[i]}家</span>
-                            <span style={{ ...S.seatName, color: memberColor(seats[i]), marginTop: 1, textAlign: "left" }}>
-                              {memberName(seats[i])}
-                            </span>
-                          </span>
-                        </span>
-                        <div style={S.seatScoreWrap}>
+                  {seats.map((id, i) => {
+                    const isNeg = scores[i].trim().startsWith("-");
+                    // 3桁以下の数字だけ入力中は「00」を薄く添えて見せる（4桁以上や空欄では出さない）
+                    const digits = (isNeg ? scores[i].slice(1) : scores[i]).trim();
+                    const showSuffix = digits !== "" && digits.length <= 3 && /^\d+$/.test(digits);
+                    return (
+                      <div key={id} style={S.scoreRow}>
+                        <Avatar id={id} size={36} />
+                        <span style={{ ...S.scoreName, color: memberColor(id) }}>{memberName(id)}</span>
+                        <span style={S.scoreFieldWrap}>
                           <input
                             style={{
-                              ...S.seatScore,
-                              color: (Number(scores[i]) || 0) < 0 ? MINUS : INK,
-                              ...(i === autoFilled ? S.seatScoreAuto : {}),
+                              ...S.scoreInput,
+                              color: isNeg ? MINUS : T.inkDark,
+                              ...(i === autoFilled ? S.scoreInputAuto : {}),
                             }}
                             type="text" inputMode="numeric" pattern="-?[0-9]*"
-                            value={scores[i]} placeholder="25000"
+                            value={scores[i]} placeholder="250"
                             onChange={(e) => setScore(i, e.target.value)}
-                            onBlur={handleBlur}
+                            onBlur={() => handleBlur(i)}
                             onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()} />
-                          <button style={S.seatSign} title="符号を反転"
-                            onClick={() => {
-                              const t = scores[i].trim();
-                              setScore(i, t === "" || t === "-" ? "-" : t.startsWith("-") ? t.slice(1) : "-" + t);
-                            }}>±</button>
-                        </div>
+                          {showSuffix && <span style={S.scoreSuffix}>00</span>}
+                        </span>
+                        <button
+                          style={{ ...S.scoreSign, ...(isNeg ? S.scoreSignOn : {}) }}
+                          title="マイナスに切り替え（もう一度押すとプラスに戻る）"
+                          onClick={() => {
+                            const t = scores[i].trim();
+                            setScore(i, t === "" || t === "-" ? "-" : t.startsWith("-") ? t.slice(1) : "-" + t);
+                          }}>−</button>
                       </div>
-                    ))}
-                    <div style={S.tableCenter} />
-                  </div>
+                    );
+                  })}
 
                   <div style={{ ...S.totalBar, background: filledCount === 0 ? "rgba(4,22,16,.45)" : diff === 0 ? "rgba(30,111,69,.22)" : "rgba(176,58,46,.20)" }}>
                     <span style={S.totalLabel}>合計</span>
@@ -1620,10 +1509,10 @@ function MLeagueTracker() {
                     )}
                   </div>
 
-                  <p style={S.hint}>3人ぶん入れて欄の外をタップすると、残り1人が自動で入ります。箱下は「±」で符号を反転。</p>
+                  <p style={S.hint}>3人ぶん入れて欄の外をタップすると、残り1人が自動で入ります。</p>
                   {err && <p style={S.err}>{err}</p>}
                   <div style={S.stepBtnRow}>
-                    <button style={S.stepBack} onClick={() => setStep(2)}>‹ 戻る</button>
+                    <button style={S.stepBack} onClick={() => setStep(1)}>‹ 戻る</button>
                     <button className="press" style={{ ...S.primary, flex: 2, marginTop: 0, ...(canSubmit ? {} : S.primaryOff) }}
                       onClick={() => addGame()}>記録する</button>
                   </div>
@@ -1666,7 +1555,7 @@ function MLeagueTracker() {
                           </span>
                         </th>
                       ))}
-                      <th style={{ ...S.gTh, width: 28 }} />
+                      <th style={{ ...S.gTh, width: 52 }} />
                     </tr>
                   </thead>
                   <tbody>
@@ -1692,17 +1581,19 @@ function MLeagueTracker() {
                             </td>
                           );
                         })}
-                        <td style={S.gTd}>
-                          <button style={S.editBtn} onClick={() => openEdit(g)}>✎</button>
-                          <button style={S.xBtn}
-                            onClick={() => setConfirmAsk({
-                              title: `${gi + 1}半荘目を削除しますか？`,
-                              body: [...g.entries].sort((a, b) => a.rank - b.rank)
-                                .map((e) => `${e.rank}位  ${memberName(e.memberId)}  ${e.raw.toLocaleString()}点  ${signed(e.point)}`)
-                                .join("\n"),
-                              note: "合計ptが再計算されます。",
-                              onOk: () => removeGame(g.id),
-                            })}>×</button>
+                        <td style={{ ...S.gTd, padding: "6px 4px" }}>
+                          <div style={S.gActCol}>
+                            <button style={S.gActEdit} onClick={() => openEdit(g)}>修正</button>
+                            <button style={S.gActDel}
+                              onClick={() => setConfirmAsk({
+                                title: `${gi + 1}半荘目を削除しますか？`,
+                                body: [...g.entries].sort((a, b) => a.rank - b.rank)
+                                  .map((e) => `${e.rank}位  ${memberName(e.memberId)}  ${e.raw.toLocaleString()}点  ${signed(e.point)}`)
+                                  .join("\n"),
+                                note: "合計ptが再計算されます。",
+                                onOk: () => removeGame(g.id),
+                              })}>削除</button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -2377,13 +2268,20 @@ function MLeagueTracker() {
                     const n = [...editScores];
                     n[i] = toHalf(ev.target.value).replace(/[^\d-]/g, "");
                     setEditScores(n);
+                  }}
+                  onBlur={() => {
+                    const n = [...editScores];
+                    n[i] = expandScore(n[i]);
+                    setEditScores(n);
                   }} />
-                <button style={S.editSign}
+                <button style={{ ...S.editSign, ...(editScores[i].trim().startsWith("-") ? S.scoreSignOn : {}) }}
+                  title="マイナスに切り替え（もう一度押すとプラスに戻る）"
                   onClick={() => {
                     const n = [...editScores];
-                    n[i] = n[i].startsWith("-") ? n[i].slice(1) : "-" + n[i];
+                    const t = n[i].trim();
+                    n[i] = t === "" || t === "-" ? "-" : t.startsWith("-") ? t.slice(1) : "-" + t;
                     setEditScores(n);
-                  }}>±</button>
+                  }}>−</button>
               </div>
             ))}
             <div style={S.editSum}>
@@ -2443,7 +2341,6 @@ const AVATARS = [
 const AVATAR_DATA = {};
 const avatarSrc = (id) => (DEV_MODE ? (AVATAR_DATA[id] || "") : `avatars/${id}.png`);
 
-const WINDS = ["東", "南", "西", "北"];
 const SEAT_POS = [
   { style: { bottom: 10, left: "50%", transform: "translateX(-50%)" } }, // 東：手前
   { style: { right: 10, top: "50%", transform: "translateY(-50%)" } },   // 南：右
@@ -2481,13 +2378,11 @@ const buildEntries = (memberIds, nums) => {
     }
     i = j + 1;
   }
-  // seat は席順（0=東 1=南 2=西 3=北）。入力画面の並び順がそのまま席順になる
   return [0, 1, 2, 3].map((s) => ({
     memberId: memberIds[s],
     rank: rankOf[s],
     raw: nums[s],
     point: Math.round(((nums[s] - RETURN) / 1000 + bonusOf[s]) * 10) / 10,
-    seat: s,
   }));
 };
 
@@ -2653,6 +2548,9 @@ const S = {
   memberName: { flex: 1, fontSize: 15, fontWeight: 700, minWidth: 0, color: "#F0E6CC", fontFamily: MIN, letterSpacing: "0.04em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   memberInputOn: { flex: 1, padding: "7px 9px", border: `1px solid ${FELT}`, borderRadius: 7, fontSize: 16, minWidth: 0, background: "#fff", fontFamily: "inherit", color: INK, outline: "none" },
   editBtn: { border: "none", background: "none", color: "#A9A49B", fontSize: 15, cursor: "pointer", padding: "3px 5px", lineHeight: 1, flexShrink: 0 },
+  gActCol: { display: "flex", flexDirection: "column", gap: 4 },
+  gActEdit: { padding: "5px 3px", borderRadius: 6, fontSize: 10.5, fontWeight: 700, border: "1px solid rgba(184,150,62,.40)", background: "rgba(184,150,62,.16)", color: "#6B520C", fontFamily: "inherit", cursor: "pointer", whiteSpace: "nowrap" },
+  gActDel: { padding: "5px 3px", borderRadius: 6, fontSize: 10.5, fontWeight: 700, border: "1px solid rgba(176,58,46,.35)", background: "rgba(176,58,46,.10)", color: "#B03A2E", fontFamily: "inherit", cursor: "pointer", whiteSpace: "nowrap" },
   editDone: { border: "none", background: "rgba(255,255,255,.12)", color: T.ink, fontSize: 12, fontWeight: 700, borderRadius: 7, padding: "7px 11px", cursor: "pointer", flexShrink: 0, fontFamily: "inherit" },
   editCancel: { border: "none", background: "none", color: T.sub, fontSize: 12, cursor: "pointer", padding: "7px 3px", flexShrink: 0, fontFamily: "inherit" },
 
@@ -2691,7 +2589,7 @@ const S = {
   editRow: { display: "flex", alignItems: "center", gap: 8, marginBottom: 7 },
   editName: { width: 78, fontSize: 13.5, fontWeight: 700, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   editScore: { flex: 1, minWidth: 0, padding: "10px 12px", fontSize: 16, textAlign: "right", border: `1px solid ${T.line}`, borderRadius: 9, background: "#fff", fontFamily: NUM, color: INK },
-  editSign: { width: 38, flexShrink: 0, padding: "10px 0", background: T.sink, border: `1px solid ${T.line}`, borderRadius: 9, fontSize: 14, cursor: "pointer", fontFamily: "inherit", color: T.sub },
+  editSign: { width: 44, height: 42, flexShrink: 0, padding: 0, background: "rgba(240,164,142,.14)", border: "1.5px solid rgba(240,164,142,.45)", borderRadius: 9, fontSize: 20, fontWeight: 900, cursor: "pointer", fontFamily: "inherit", color: MINUS_D, lineHeight: 1 },
   editSum: { marginTop: 10, fontSize: 12, color: T.sub, textAlign: "right" },
   editSumHint: { color: T.faint, fontFamily: NUM },
 
@@ -2756,14 +2654,6 @@ const S = {
   avatarTaken: { position: "absolute", top: 4, right: 4, fontSize: 9, color: "#FFFFFF", background: "rgba(60,50,30,.62)", borderRadius: 999, padding: "1px 6px" },
   sortChip: { flexShrink: 0, padding: "7px 14px", borderRadius: 999, border: "1px solid rgba(60,50,30,.16)", background: "#FFFFFF", fontSize: 12, fontWeight: 700, color: T.inkDark, cursor: "pointer", fontFamily: "inherit" },
   sortChipOn: { background: "linear-gradient(160deg, #FBEFC8 0%, #F5DFA0 100%)", color: "#2E2205", borderColor: "rgba(184,150,62,.55)" },
-  seatStatRow: { display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderTop: `1px solid ${T.lineSoft}` },
-  seatStatName: { fontSize: 12, fontWeight: 700, width: 34, flexShrink: 0, color: T.gold },
-  seatStatNameE: { color: MINUS_D },
-  seatStatBar: { flex: 1, height: 20, borderRadius: 5, background: T.sink, position: "relative", overflow: "hidden" },
-  seatStatSeg: { position: "absolute", top: 0, bottom: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff", fontFamily: NUM },
-  seatStatPt: { fontSize: 12, fontWeight: 700, fontFamily: NUM, width: 62, textAlign: "right", flexShrink: 0 },
-  seatStatBest: { color: T.gold, marginLeft: 3, fontSize: 10 },
-  seatStatNone: { fontSize: 12, color: T.faint, width: 62, textAlign: "right", flexShrink: 0, fontFamily: NUM },
   certToTotal: { width: "100%", marginTop: 12, padding: 13, borderRadius: 10, border: "none", background: "#FFFFFF", color: T.inkDark, fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: MIN, letterSpacing: "0.08em" },
   seasonMeta: { fontSize: 11, color: T.faint, fontFamily: NUM, marginTop: 3 },
   seasonBtn: { flexShrink: 0, padding: "6px 12px", background: T.sink, border: `1px solid ${T.line}`, borderRadius: 8, fontSize: 12, cursor: "pointer", fontFamily: "inherit", color: T.ink },
@@ -2808,22 +2698,14 @@ const S = {
   memberPickOn: { background: "linear-gradient(160deg, #FBEFC8 0%, #F5DFA0 100%)", borderColor: "rgba(184,150,62,.55)", color: "#2E2205" },
   memberPickNo: { position: "absolute", top: 5, right: 7, fontSize: 10, color: "#FFFFFF", background: "#8A6D12", border: "none", borderRadius: 999, padding: "0 5px", fontWeight: 700 },
 
-  tableWrap: { position: "relative", background: "radial-gradient(120% 100% at 50% 20%, #2A6B52, #0E2C22)", borderRadius: 16, padding: 12, aspectRatio: "1 / 0.98", boxShadow: "inset 0 0 0 2px rgba(216,183,106,.45), 0 8px 26px rgba(0,0,0,.55)" },
-  seatBox: { position: "absolute", width: "43%", background: `linear-gradient(165deg, #FFFDF6 0%, ${T.paperLo} 100%)`, borderRadius: 10, padding: "7px 8px", textAlign: "center", border: "none", fontFamily: "inherit", cursor: "pointer", boxShadow: "0 3px 10px rgba(0,0,0,.35), inset 0 0 0 1px rgba(184,150,62,.30)" },
-  seatBoxTall: { minHeight: 85, display: "flex", flexDirection: "column", justifyContent: "center" },
-  seatBoxSel: { boxShadow: "0 0 0 2.5px rgba(243,214,143,.95), 0 3px 12px rgba(0,0,0,.40)" },
-  seatWind: { display: "block", fontSize: 10, fontWeight: 700, color: T.gold, letterSpacing: "0.06em", whiteSpace: "nowrap" },
-  seatWindE: { color: "#E8897A" },
-  seatName: { display: "block", fontSize: 13.5, fontWeight: 700, marginTop: 3, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  seatFaceRow: { display: "flex", alignItems: "center", gap: 7, minWidth: 0 },
-  seatInfo: { display: "flex", flexDirection: "column", minWidth: 0, flex: 1, textAlign: "left" },
-  seatScoreWrap: { display: "flex", gap: 4, marginTop: 4 },
-  seatScore: { flex: 1, minWidth: 0, padding: "7px 6px", textAlign: "right", fontSize: 16, border: "1px solid rgba(60,50,30,.18)", borderRadius: 7, background: "#fff", fontFamily: NUM, color: T.inkDark },
-  seatScoreAuto: { background: "linear-gradient(150deg, #FBEFC8 0%, #F5DFA0 100%)", borderColor: "rgba(184,150,62,.5)" },
-  seatSign: { width: 28, flexShrink: 0, padding: 0, background: "rgba(60,50,30,.10)", border: "1px solid rgba(60,50,30,.18)", borderRadius: 7, fontSize: 12, cursor: "pointer", fontFamily: "inherit", color: "#5A5750" },
-  tableCenter: { position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", textAlign: "center", width: "30%" },
-  stepGuide: { fontSize: 11, color: T.sub, margin: "-3px 0 10px", lineHeight: 1.6 },
-  rotateBtn: { width: "100%", marginTop: 12, padding: 11, borderRadius: 10, border: `1px solid ${T.line}`, background: T.sink, fontFamily: "inherit", fontSize: 13.5, fontWeight: 700, color: T.sub, cursor: "pointer" },
+  scoreName: { display: "block", fontSize: 13.5, fontWeight: 700, marginTop: 3, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  scoreRow: { display: "flex", alignItems: "center", gap: 7, minWidth: 0 },
+  scoreFieldWrap: { position: "relative", flex: 1, minWidth: 0 },
+  scoreInput: { width: "100%", boxSizing: "border-box", padding: "9px 32px 9px 8px", textAlign: "right", fontSize: 16, border: "1px solid rgba(60,50,30,.18)", borderRadius: 8, background: "#fff", fontFamily: NUM, color: T.inkDark },
+  scoreSuffix: { position: "absolute", right: 9, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: "#A9A49B", fontFamily: NUM, pointerEvents: "none" },
+  scoreInputAuto: { background: "linear-gradient(150deg, #FBEFC8 0%, #F5DFA0 100%)", borderColor: "rgba(184,150,62,.5)" },
+  scoreSign: { width: 46, height: 44, flexShrink: 0, padding: 0, background: "rgba(240,164,142,.14)", border: "1.5px solid rgba(240,164,142,.45)", borderRadius: 10, fontSize: 22, fontWeight: 900, cursor: "pointer", fontFamily: "inherit", color: MINUS_D, lineHeight: 1 },
+  scoreSignOn: { background: MINUS_D, borderColor: MINUS_D, color: "#2E0E08", boxShadow: "0 2px 6px rgba(0,0,0,.35)" },
 };
 
 
