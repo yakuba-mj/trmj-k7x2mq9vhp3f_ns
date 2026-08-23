@@ -1469,7 +1469,7 @@ function MLeagueTracker() {
                     const showSuffix = digits !== "" && digits.length <= 3 && /^\d+$/.test(digits);
                     return (
                       <div key={id} style={S.scoreRow}>
-                        <Avatar id={id} size={36} />
+                        <Avatar id={id} size={34} />
                         <span style={{ ...S.scoreName, color: memberColor(id) }}>{memberName(id)}</span>
                         <span style={S.scoreFieldWrap}>
                           <input
@@ -2698,13 +2698,13 @@ const S = {
   memberPickOn: { background: "linear-gradient(160deg, #FBEFC8 0%, #F5DFA0 100%)", borderColor: "rgba(184,150,62,.55)", color: "#2E2205" },
   memberPickNo: { position: "absolute", top: 5, right: 7, fontSize: 10, color: "#FFFFFF", background: "#8A6D12", border: "none", borderRadius: 999, padding: "0 5px", fontWeight: 700 },
 
-  scoreName: { display: "block", fontSize: 13.5, fontWeight: 700, marginTop: 3, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  scoreRow: { display: "flex", alignItems: "center", gap: 7, minWidth: 0 },
-  scoreFieldWrap: { position: "relative", flex: 1, minWidth: 0 },
-  scoreInput: { width: "100%", boxSizing: "border-box", padding: "9px 32px 9px 8px", textAlign: "right", fontSize: 16, border: "1px solid rgba(60,50,30,.18)", borderRadius: 8, background: "#fff", fontFamily: NUM, color: T.inkDark },
-  scoreSuffix: { position: "absolute", right: 9, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: "#A9A49B", fontFamily: NUM, pointerEvents: "none" },
+  scoreName: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: 700, fontFamily: MIN, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  scoreRow: { display: "flex", alignItems: "center", gap: 9, minWidth: 0, padding: "6px 0" },
+  scoreFieldWrap: { position: "relative", width: 96, flexShrink: 0 },
+  scoreInput: { width: "100%", boxSizing: "border-box", padding: "8px 26px 8px 8px", textAlign: "right", fontSize: 16, border: "1px solid rgba(60,50,30,.18)", borderRadius: 8, background: "#fff", fontFamily: NUM, color: T.inkDark },
+  scoreSuffix: { position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", fontSize: 12, color: "#A9A49B", fontFamily: NUM, pointerEvents: "none" },
   scoreInputAuto: { background: "linear-gradient(150deg, #FBEFC8 0%, #F5DFA0 100%)", borderColor: "rgba(184,150,62,.5)" },
-  scoreSign: { width: 46, height: 44, flexShrink: 0, padding: 0, background: "rgba(240,164,142,.14)", border: "1.5px solid rgba(240,164,142,.45)", borderRadius: 10, fontSize: 22, fontWeight: 900, cursor: "pointer", fontFamily: "inherit", color: MINUS_D, lineHeight: 1 },
+  scoreSign: { width: 38, height: 38, flexShrink: 0, padding: 0, background: "rgba(240,164,142,.14)", border: "1.5px solid rgba(240,164,142,.45)", borderRadius: 9, fontSize: 19, fontWeight: 900, cursor: "pointer", fontFamily: "inherit", color: MINUS_D, lineHeight: 1 },
   scoreSignOn: { background: MINUS_D, borderColor: MINUS_D, color: "#2E0E08", boxShadow: "0 2px 6px rgba(0,0,0,.35)" },
 };
 
