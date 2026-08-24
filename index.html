@@ -351,6 +351,7 @@ function MLeagueTracker() {
   const [confirmAsk, setConfirmAsk] = useState(null);
   const [editId, setEditId] = useState(null);
   const [avatarPick, setAvatarPick] = useState(null);
+  const [showRules, setShowRules] = useState(false);
   const [editText, setEditText] = useState("");
   const [ioMsg, setIoMsg] = useState(null);
   const [tab, setTab] = useState("members");
@@ -1345,10 +1346,10 @@ function MLeagueTracker() {
             </span>
             <h1 style={S.h1}>麻雀成績ログ</h1>
           </div>
-          <span style={S.ruleBadge}>
+          <button style={S.ruleBadge} onClick={() => setShowRules(true)}>
             <span style={S.ruleBadgeDot} />
             Mリーグルール
-          </span>
+          </button>
         </div>
         <div style={S.headerRule}>
           <span style={S.rulePill}>25000持ち</span>
@@ -2224,6 +2225,53 @@ function MLeagueTracker() {
         </div>
       )}
 
+      {showRules && (
+        <div style={S.certMask} onClick={() => setShowRules(false)}>
+          <div style={S.certSheet} onClick={(e) => e.stopPropagation()}>
+            <button style={S.certBack} onClick={() => setShowRules(false)}>‹ 閉じる</button>
+            <div style={S.ruleSheet}>
+              <div style={S.ruleSheetTitle}>Mリーグルール</div>
+              <p style={S.ruleSrc}>Mリーグ公式サイト掲載の公式戦ルールに基づく</p>
+
+              {RULE_SECTIONS.map((sec) => (
+                <div key={sec.title}>
+                  <div style={S.ruleSec}>{sec.title}</div>
+                  {sec.items.map(([name, val]) => {
+                    const isArr = Array.isArray(val);
+                    const mark = isArr ? val[0] : null;
+                    const note = isArr ? val[1] : val;
+                    const good = isArr ? !!val[2] : false;
+                    return (
+                      <div key={name} style={S.ruleItem}>
+                        <span style={S.ruleItemName}>{name}</span>
+                        <span style={S.ruleItemVal}>
+                          {mark && (
+                            <b style={{ color: good ? PLUS_D : MINUS_D }}>{mark}</b>
+                          )}
+                          {mark && note ? "　" : ""}
+                          {note}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+
+              <div style={S.ruleSec}>用語のはなし</div>
+              {RULE_TERMS.map(([name, read, desc]) => (
+                <div key={name} style={S.ruleTerm}>
+                  <div style={S.ruleTermName}>
+                    {name}
+                    {read && <span style={S.ruleTermRead}>{read}</span>}
+                  </div>
+                  <div style={S.ruleTermDesc}>{desc}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {avatarPick != null && (
         <div style={S.overlay} onClick={() => setAvatarPick(null)}>
           <div style={S.dialog} className="card-tex" onClick={(e) => e.stopPropagation()}>
@@ -2349,6 +2397,58 @@ const SEAT_POS = [
 ];
 
 // 全角数字やマイナス記号を半角に直す（日本語入力のままでも入力できるように）
+// ===== Mリーグルールの一覧（公式サイト掲載の公式戦ルールに基づく）=====
+const RULE_SECTIONS = [
+  { title: "点数の計算", items: [
+    ["持ち点", "25,000点（30,000点を基準とする）"],
+    ["順位点", "1位 +50 ／ 2位 +10 ／ 3位 −10 ／ 4位 −30"],
+    ["同点のとき", "その順位の点を人数で分ける"],
+    ["残ったリーチ棒", "流局で半荘が終わったときはトップに加算"],
+  ]},
+  { title: "終わり方・進み方", items: [
+    ["対局", "東南戦（半荘）"],
+    ["飛び", ["なし", "0点を下回っても最後まで続行"]],
+    ["途中流局", ["なし", "九種九牌・四風連打・四槓流れ・四家立直すべてなし"]],
+    ["ダブロン", ["なし", "頭ハネを採用"]],
+    ["テンパイ宣言", "東家 → 南家 → 西家 → 北家の順に行う"],
+    ["テンパイ料", "場に3,000点"],
+    ["積み棒", "1本場につき300点"],
+  ]},
+  { title: "リーチ", items: [
+    ["ツモ番なしのリーチ", ["できる", "自分のツモ番が残っていなくてもかけられる", true]],
+    ["フリテンリーチ", ["できる", "", true]],
+  ]},
+  { title: "鳴き・カン", items: [
+    ["発声の優先", "ポン・カンがチーより優先。遅れた・聞こえない・同時の場合は審判が裁定"],
+    ["5回目のカン", ["できない", "1局で4回まで"]],
+    ["カンドラ", "即めくり（カンした直後にめくる）"],
+    ["暗カンのチャンカン", ["成立しない", ""]],
+    ["河底牌", ["鳴けない", "最後の捨て牌はロンのみ（麻雀の一般則）"]],
+  ]},
+  { title: "アガリ・役", items: [
+    ["赤牌", "5萬・5筒・5索に各1枚（計3枚）"],
+    ["切り上げ満貫", ["あり", "30符6翻（60符5翻）は子8,000点・親12,000点", true]],
+    ["数え役満", ["なし", ""]],
+    ["役満の複合", ["あり", "", true]],
+    ["パオ", "大三元・大四喜・四槓子に適用"],
+  ]},
+  { title: "罰則", items: [
+    ["チョンボ", "−20.0　その局はやり直し"],
+    ["チョンボになるもの", "誤ロン・誤ツモで手牌を公開した場合／ノーテンリーチ／リーチ後の不正なカン（流局時）"],
+    ["アガリ放棄になるもの", "多牌・少牌・先ヅモ・喰い替え・空行為・錯行為"],
+  ]},
+];
+
+const RULE_TERMS = [
+  ["頭ハネ", "あたまはね", "1つの捨て牌に2人以上がロンをかけたとき、1人だけがアガリになる決め方。捨てた人から見て近い人（次にツモる人から順）が優先されます。Mリーグはダブロンを採用していないので、必ずこの形になります。"],
+  ["ツモ番なしリーチ", "", "山が残り少なく、もう自分がツモる番が来ない状態でかけるリーチ。他の人からのロンだけを狙う形になります。ルールによっては禁止されますが、Mリーグでは認められています。"],
+  ["河底牌", "ホウテイハイ", "その局の最後の捨て牌。これでロンすると1翻（河底撈魚）。位置が決まっているため、鳴いて動かすことはできません。ちなみに山の最後の1枚は海底牌で、ツモってアガると1翻（海底摸月）。"],
+  ["チャンカン", "槍槓", "他の人が加槓した牌でロンすること（1翻）。Mリーグでは暗カンに対しては成立しません。"],
+  ["切り上げ満貫", "", "あと少しで満貫という点数を、満貫に切り上げて払うルール。子7,700点が8,000点になります。"],
+  ["パオ", "責任払い", "大三元・大四喜・四槓子で、役満が確定する牌を鳴かせてしまった人が責任を負うルール。"],
+  ["喰い替え", "くいかえ", "鳴いた直後に、鳴いた牌と同じ牌（または待ちが同じ牌）を捨てること。禁止されており、アガリ放棄になります。"],
+];
+
 const toHalf = (str) =>
   String(str)
     .replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
@@ -2432,7 +2532,7 @@ const S = {
     display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0,
     fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", color: "#E8CF8E",
     background: "rgba(0,0,0,.20)", border: `1px solid rgba(216,183,106,.55)`,
-    padding: "6px 12px", borderRadius: 999,
+    padding: "9px 13px", borderRadius: 999, cursor: "pointer", fontFamily: "inherit",
   },
   ruleBadgeDot: { width: 5, height: 5, borderRadius: 3, background: T.goldHi, boxShadow: "0 0 5px #E8C766" },
 
@@ -2654,6 +2754,17 @@ const S = {
   avatarTaken: { position: "absolute", top: 4, right: 4, fontSize: 9, color: "#FFFFFF", background: "rgba(60,50,30,.62)", borderRadius: 999, padding: "1px 6px" },
   sortChip: { flexShrink: 0, padding: "7px 14px", borderRadius: 999, border: "1px solid rgba(60,50,30,.16)", background: "#FFFFFF", fontSize: 12, fontWeight: 700, color: T.inkDark, cursor: "pointer", fontFamily: "inherit" },
   sortChipOn: { background: "linear-gradient(160deg, #FBEFC8 0%, #F5DFA0 100%)", color: "#2E2205", borderColor: "rgba(184,150,62,.55)" },
+  ruleSheet: { background: `linear-gradient(165deg, ${T.panelHi} 0%, ${T.panel} 100%)`, border: `1px solid ${T.line}`, borderRadius: 16, padding: 16, boxShadow: "0 8px 28px rgba(0,0,0,.6)" },
+  ruleSheetTitle: { fontSize: 16, fontWeight: 900, fontFamily: MIN, color: "#F0E6CC", letterSpacing: "0.08em" },
+  ruleSrc: { fontSize: 10.5, color: T.faint, margin: "6px 0 14px", lineHeight: 1.6 },
+  ruleSec: { fontSize: 12, fontWeight: 700, letterSpacing: "0.10em", color: T.goldHi, fontFamily: MIN, margin: "20px 0 9px", paddingBottom: 5, borderBottom: `1px solid ${T.lineSoft}` },
+  ruleItem: { display: "flex", gap: 10, padding: "9px 0", borderBottom: "1px solid rgba(216,183,106,.09)" },
+  ruleItemName: { width: 104, flexShrink: 0, fontSize: 12.5, fontWeight: 700, color: "#F0E6CC", fontFamily: MIN, lineHeight: 1.5 },
+  ruleItemVal: { flex: 1, fontSize: 12.5, color: T.sub, lineHeight: 1.65 },
+  ruleTerm: { padding: "10px 0", borderBottom: "1px solid rgba(216,183,106,.09)" },
+  ruleTermName: { fontSize: 13.5, fontWeight: 700, color: T.goldHi, fontFamily: MIN, marginBottom: 4 },
+  ruleTermRead: { fontSize: 10.5, color: T.faint, marginLeft: 6, fontWeight: 400 },
+  ruleTermDesc: { fontSize: 12.5, color: T.sub, lineHeight: 1.7 },
   certToTotal: { width: "100%", marginTop: 12, padding: 13, borderRadius: 10, border: "none", background: "#FFFFFF", color: T.inkDark, fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: MIN, letterSpacing: "0.08em" },
   seasonMeta: { fontSize: 11, color: T.faint, fontFamily: NUM, marginTop: 3 },
   seasonBtn: { flexShrink: 0, padding: "6px 12px", background: T.sink, border: `1px solid ${T.line}`, borderRadius: 8, fontSize: 12, cursor: "pointer", fontFamily: "inherit", color: T.ink },
