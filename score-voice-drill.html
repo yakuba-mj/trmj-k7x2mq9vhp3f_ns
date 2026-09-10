@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>点数申告ドリル</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@400;600;700;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#060606;
+  --lacquer:#12100d;
+  --lacquer-2:#1b1812;
+  --gold:#c9a24a;
+  --gold-hi:#e9d49b;
+  --gold-dim:#7d6630;
+  --paper:#efe8d8;
+  --muted:#a39a86;
+  --jade:#6cc39a;
+  --shu:#e0674f;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  min-height:100vh;
+  color:var(--paper);
+  font-family:"Noto Serif JP",serif;
+  line-height:1.8;
+  background-color:var(--ink);
+  background-image:
+    linear-gradient(115deg,transparent 0 38%,rgba(233,212,155,.05) 44%,transparent 52%),
+    linear-gradient(115deg,transparent 0 58%,rgba(233,212,155,.03) 62%,transparent 68%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 69.282'%3E%3Cpath fill='none' stroke='%23c9a24a' stroke-opacity='.07' stroke-width='.5' d='M0 0H40M0 34.641H40M0 69.282H40M0 0L20 34.641L0 69.282M40 0L20 34.641L40 69.282M20 11.547L0 0M20 11.547L40 0M20 11.547L20 34.641M20 57.735L0 69.282M20 57.735L40 69.282M20 57.735L20 34.641M0 23.094L0 0M0 23.094L20 34.641M40 23.094L40 0M40 23.094L20 34.641M0 46.188L0 69.282M0 46.188L20 34.641M40 46.188L40 69.282M40 46.188L20 34.641'/%3E%3C/svg%3E");
+  background-size:auto,auto,48px 83.14px;
+  background-attachment:fixed,fixed,scroll;
+}
+.wrap{max-width:520px;margin:0 auto;padding:16px 16px calc(40px + env(safe-area-inset-bottom))}
+
+/* header */
+.top{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:4px 2px 14px;border-bottom:1px solid var(--gold-dim)}
+.top h1{margin:0;font-size:1.15rem;font-weight:700;letter-spacing:.12em;color:var(--gold-hi)}
+.tally{display:flex;gap:14px;font-size:.9rem;color:var(--muted)}
+.tally b{color:var(--paper);font-weight:600}
+
+/* question plate */
+.plate{
+  margin:20px 0 0;
+  padding:18px 18px 20px;
+  background:linear-gradient(180deg,var(--lacquer-2),var(--lacquer));
+  border:1px solid var(--gold);
+  outline:1px solid var(--gold-dim);
+  outline-offset:4px;
+  border-radius:3px;
+  text-align:center;
+  min-height:250px;
+  display:flex;flex-direction:column;justify-content:center;
+}
+.plate-head{display:flex;justify-content:center;align-items:center;gap:8px;min-height:30px}
+.chip{display:inline-block;min-width:3.2em;padding:0 .8em;font-size:.95rem;font-weight:700;line-height:28px;border-radius:2px;letter-spacing:.1em}
+.chip.fill{background:var(--gold);color:#140f05}
+.chip.line{border:1px solid var(--gold);color:var(--gold-hi)}
+.review{font-size:.8rem;color:var(--shu);border:1px solid var(--shu);padding:0 .6em;line-height:24px;border-radius:2px}
+.plate-q{margin:10px 0 0;font-weight:900;line-height:1.15;color:var(--paper);white-space:nowrap}
+.plate-q .num{font-size:clamp(3.4rem,17vw,5rem);letter-spacing:-.02em}
+.plate-q .unit{font-size:clamp(1.5rem,7vw,2.1rem);color:var(--gold);margin:0 .12em 0 .06em;font-weight:700}
+.plate-q .word{font-size:clamp(2.8rem,14vw,4.2rem);letter-spacing:.08em}
+.plate-ask{margin:4px 0 0;color:var(--muted);font-size:1rem}
+.plate-intro{margin:0;font-size:1.05rem;line-height:2}
+.plate-intro small{display:block;color:var(--muted);font-size:.85rem;margin-top:6px}
+
+.verdict{margin-top:14px;padding-top:14px;border-top:1px solid var(--gold-dim);display:grid;grid-template-columns:auto 1fr;gap:4px 14px;align-items:center;text-align:left}
+.verdict .mark{font-size:3rem;line-height:1;font-weight:900}
+.verdict.ok .mark{color:var(--jade)}
+.verdict.ng .mark{color:var(--shu)}
+.verdict .answer{margin:0;font-size:1.6rem;font-weight:900;line-height:1.3}
+.verdict .answer small{font-size:.95rem;color:var(--gold);font-weight:700;margin-right:.4em}
+.verdict .calc{grid-column:1/-1;margin:6px 0 0;font-size:.85rem;color:var(--muted);line-height:1.7}
+
+/* heard + status */
+.heard{min-height:1.8em;margin:14px 2px 0;font-size:1rem;color:var(--gold-hi);text-align:center}
+.heard:empty::before{content:"\00a0"}
+.status{min-height:1.6em;margin:2px 0 0;text-align:center;font-size:.9rem;color:var(--muted)}
+
+/* primary button */
+.primary-row{display:flex;justify-content:center;margin-top:14px}
+.primary{
+  position:relative;
+  width:min(100%,320px);min-height:60px;
+  font:inherit;font-size:1.15rem;font-weight:700;letter-spacing:.1em;
+  color:#140f05;background:var(--gold);
+  border:0;border-radius:30px;cursor:pointer;
+}
+.primary:hover{background:var(--gold-hi)}
+.primary:disabled{background:var(--gold-dim);color:#2a2213;cursor:default}
+.primary.listening{background:transparent;color:var(--gold-hi);box-shadow:inset 0 0 0 2px var(--gold)}
+.primary.listening::after{
+  content:"";position:absolute;inset:-6px;border-radius:36px;border:2px solid var(--gold);
+  animation:ring 1.4s ease-out infinite;
+}
+@keyframes ring{from{opacity:.8;transform:scale(1)}to{opacity:0;transform:scale(1.08)}}
+
+/* secondary actions */
+.actions{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:14px}
+.btn{
+  font:inherit;font-size:.95rem;min-height:44px;padding:0 16px;
+  color:var(--gold-hi);background:transparent;border:1px solid var(--gold-dim);border-radius:22px;cursor:pointer;
+}
+.btn:hover{border-color:var(--gold)}
+.btn:disabled{opacity:.35;cursor:default}
+
+/* typed answer */
+.typed{display:flex;gap:8px;margin-top:18px}
+.typed input{
+  flex:1;min-width:0;font:inherit;font-size:17px;
+  padding:10px 12px;color:var(--paper);background:var(--lacquer);
+  border:1px solid var(--gold-dim);border-radius:3px;
+}
+.typed input::placeholder{color:#766e5e}
+.typed input:focus{border-color:var(--gold)}
+.typed .btn{flex:none}
+
+:focus-visible{outline:2px solid var(--gold-hi);outline-offset:2px}
+
+/* settings */
+details.settings{margin-top:26px;border-top:1px solid var(--gold-dim)}
+details.settings summary{cursor:pointer;padding:14px 2px;color:var(--gold-hi);font-weight:600;list-style:none}
+details.settings summary::-webkit-details-marker{display:none}
+details.settings summary::before{content:"＋";display:inline-block;width:1.5em;color:var(--gold)}
+details.settings[open] summary::before{content:"－"}
+.setting{margin:0 0 16px;padding:0;border:0}
+.setting legend,.setting > .label{display:block;margin-bottom:6px;font-size:.9rem;color:var(--muted);padding:0}
+.seg{display:flex;flex-wrap:wrap;gap:6px}
+.seg label{position:relative}
+.seg input{position:absolute;opacity:0;inset:0;cursor:pointer}
+.seg span{display:block;min-height:40px;line-height:38px;padding:0 14px;border:1px solid var(--gold-dim);border-radius:3px;font-size:.95rem;color:var(--paper)}
+.seg input:checked + span{background:var(--gold);border-color:var(--gold);color:#140f05;font-weight:700}
+.seg input:focus-visible + span{outline:2px solid var(--gold-hi);outline-offset:2px}
+.range{display:flex;align-items:center;gap:12px}
+.range input{flex:1;accent-color:var(--gold)}
+.note{font-size:.82rem;color:var(--muted);line-height:1.8;margin:4px 0 0}
+
+/* summary list */
+.missed{margin:18px 0 0;padding:0;list-style:none;text-align:left}
+.missed li{padding:8px 0;border-bottom:1px solid #2a251b;font-size:.95rem;display:flex;justify-content:space-between;gap:10px}
+.missed li span:last-child{color:var(--gold-hi);font-weight:700;white-space:nowrap}
+.summary-num{font-size:3rem;font-weight:900;line-height:1.2}
+.summary-num .unit{font-size:1.3rem;color:var(--gold)}
+
+@media (prefers-reduced-motion:reduce){
+  .primary.listening::after{animation:none;opacity:.5}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>点数申告ドリル</h1>
+    <div class="tally" aria-live="polite">
+      <span>正解 <b id="tScore">0 / 0</b></span>
+      <span>連続 <b id="tStreak">0</b></span>
+    </div>
+  </header>
+
+  <section class="plate" id="plate" aria-live="polite"></section>
+
+  <p class="heard" id="heard" aria-live="polite"></p>
+  <p class="status" id="status"></p>
+
+  <div class="primary-row"><button class="primary" id="primary" type="button">始める</button></div>
+
+  <div class="actions">
+    <button class="btn" id="btnRepeat" type="button" disabled>読み直す</button>
+    <button class="btn" id="btnReveal" type="button" disabled>答えを見る</button>
+    <button class="btn" id="btnEnd" type="button" disabled>終了する</button>
+  </div>
+
+  <form class="typed" id="typedForm" autocomplete="off">
+    <input id="typedInput" type="text" enterkeyhint="done" placeholder="文字で答える　例：7700／700 1300" aria-label="文字で答える">
+    <button class="btn" type="submit">答える</button>
+  </form>
+
+  <details class="settings" id="settings">
+    <summary>出題の設定</summary>
+
+    <fieldset class="setting">
+      <legend>問題の種類</legend>
+      <div class="seg">
+        <label><input type="radio" name="mode" value="fu" checked><span>符と翻</span></label>
+        <label><input type="radio" name="mode" value="high"><span>満貫以上</span></label>
+        <label><input type="radio" name="mode" value="mix"><span>両方</span></label>
+      </div>
+    </fieldset>
+
+    <fieldset class="setting">
+      <legend>親と子</legend>
+      <div class="seg">
+        <label><input type="radio" name="dealer" value="both" checked><span>両方</span></label>
+        <label><input type="radio" name="dealer" value="oya"><span>親だけ</span></label>
+        <label><input type="radio" name="dealer" value="ko"><span>子だけ</span></label>
+      </div>
+    </fieldset>
+
+    <fieldset class="setting">
+      <legend>和了の形</legend>
+      <div class="seg">
+        <label><input type="radio" name="win" value="both" checked><span>両方</span></label>
+        <label><input type="radio" name="win" value="ron"><span>ロンだけ</span></label>
+        <label><input type="radio" name="win" value="tsumo"><span>ツモだけ</span></label>
+      </div>
+    </fieldset>
+
+    <fieldset class="setting">
+      <legend>出題する符</legend>
+      <div class="seg">
+        <label><input type="radio" name="maxFu" value="70" checked><span>70符まで</span></label>
+        <label><input type="radio" name="maxFu" value="110"><span>110符まで</span></label>
+      </div>
+    </fieldset>
+
+    <fieldset class="setting">
+      <legend>切り上げ満貫（30符4翻・60符3翻）</legend>
+      <div class="seg">
+        <label><input type="radio" name="kiriage" value="0" checked><span>なし（7700／11600）</span></label>
+        <label><input type="radio" name="kiriage" value="1"><span>あり（満貫）</span></label>
+      </div>
+      <p class="note">ルールによって扱いが分かれるため切り替えられます。遊んでいるルールに合わせてください。</p>
+    </fieldset>
+
+    <fieldset class="setting">
+      <legend>問題数</legend>
+      <div class="seg">
+        <label><input type="radio" name="count" value="10" checked><span>10問</span></label>
+        <label><input type="radio" name="count" value="20"><span>20問</span></label>
+        <label><input type="radio" name="count" value="0"><span>終わりなし</span></label>
+      </div>
+    </fieldset>
+
+    <fieldset class="setting">
+      <legend>答え方</legend>
+      <div class="seg">
+        <label><input type="radio" name="voiceAnswer" value="1" checked><span>声で答える</span></label>
+        <label><input type="radio" name="voiceAnswer" value="0"><span>文字だけ</span></label>
+      </div>
+    </fieldset>
+
+    <fieldset class="setting">
+      <legend>判定のあと</legend>
+      <div class="seg">
+        <label><input type="radio" name="autoNext" value="1" checked><span>自動で次へ</span></label>
+        <label><input type="radio" name="autoNext" value="0"><span>ボタンで次へ</span></label>
+      </div>
+    </fieldset>
+
+    <div class="setting">
+      <span class="label">読み上げの速さ</span>
+      <div class="range">
+        <input type="range" id="rate" min="0.7" max="1.5" step="0.1" value="1.0" aria-label="読み上げの速さ">
+        <span id="rateOut">1.0</span>
+      </div>
+    </div>
+
+    <p class="note">
+      ツモの子は「700 1300」のように、子の支払い→親の支払いの順で答えます（逆順でも正解にします）。親のツモは「2600オール」または「2600」。
+      「符と翻」で満貫になる問題は「満貫」と答えても正解です。答えの途中で「もう一回」と言うと読み直し、「パス」と言うと答えを表示します。
+      20符はツモのみ・2翻から、25符は2翻から（ツモは3翻から）出題します。役満は「役満」の名前で出題し、13翻以上（数え役満）は出題しません。
+    </p>
+  </details>
+</div>
+
+<script>
+// ==CORE START==
+const FU_LIST = [20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110];
+const LIMITS = { '満貫': 2000, '跳満': 3000, '倍満': 4000, '三倍満': 6000, '役満': 8000 };
+const LIMIT_KANA = { '満貫': 'まんがん', '跳満': 'はねまん', '倍満': 'ばいまん', '三倍満': 'さんばいまん', '役満': 'やくまん' };
+const FU_KANA = { 20: 'にじゅっぷ', 25: 'にじゅうごふ', 30: 'さんじゅっぷ', 40: 'よんじゅっぷ', 50: 'ごじゅっぷ', 60: 'ろくじゅっぷ', 70: 'ななじゅっぷ', 80: 'はちじゅっぷ', 90: 'きゅうじゅっぷ', 100: 'ひゃっぷ', 110: 'ひゃくじゅっぷ' };
+const HAN_KANA = { 1: 'いちはん', 2: 'にはん', 3: 'さんはん', 4: 'よんはん', 5: 'ごはん', 6: 'ろくはん', 7: 'ななはん', 8: 'はちはん', 9: 'きゅうはん', 10: 'じゅうはん', 11: 'じゅういちはん', 12: 'じゅうにはん' };
+const SUP = '⁰¹²³⁴⁵⁶⁷⁸⁹';
+const sup = n => String(n).split('').map(d => SUP[+d]).join('');
+const up100 = x => Math.ceil(x / 100) * 100;
+const arrow = (raw, v) => raw === v ? `${v}` : `${raw}→${v}`;
+
+function limitByHan(han) {
+  if (han >= 13) return '役満';
+  if (han >= 11) return '三倍満';
+  if (han >= 8) return '倍満';
+  if (han >= 6) return '跳満';
+  return '満貫';
+}
+
+// q: {type:'fu'|'han'|'limit', dealer:bool, win:'ron'|'tsumo', fu, han, limitName}
+function scoreOf(q, kiriage) {
+  let base, name = null, note;
+  if (q.type === 'limit') {
+    name = q.limitName; base = LIMITS[name];
+    note = `${name}の基本点 ${base}`;
+  } else if (q.type === 'han' || q.han >= 5) {
+    name = limitByHan(q.han); base = LIMITS[name];
+    note = `${q.han}翻は${name}（基本点 ${base}）`;
+  } else {
+    const raw = q.fu * 2 ** (q.han + 2);
+    const f = `基本点 ${q.fu}×2${sup(q.han + 2)} = ${raw}`;
+    if (raw >= 2000) { name = '満貫'; base = 2000; note = `${f} → 2000以上なので満貫`; }
+    else if (kiriage && raw >= 1920) { name = '満貫'; base = 2000; note = `${f} → 切り上げ満貫`; }
+    else { base = raw; note = f; }
+  }
+  if (q.win === 'ron') {
+    const m = q.dealer ? 6 : 4, v = up100(base * m);
+    return { kind: 'ron', values: [v], name, base, note: `${note} → ×${m} = ${arrow(base * m, v)}` };
+  }
+  if (q.dealer) {
+    const v = up100(base * 2);
+    return { kind: 'all', values: [v], name, base, note: `${note} → 子3人が ×2 = ${arrow(base * 2, v)} ずつ` };
+  }
+  const a = up100(base), b = up100(base * 2);
+  return { kind: 'split', values: [a, b], name, base, note: `${note} → 子は ×1 = ${arrow(base, a)}、親は ×2 = ${arrow(base * 2, b)}` };
+}
+
+function answerLabel(r) {
+  if (r.kind === 'ron') return `${r.values[0]}点`;
+  if (r.kind === 'all') return `${r.values[0]}オール`;
+  return `${r.values[0]}・${r.values[1]}`;
+}
+function answerSpeech(r) {
+  const pre = r.name ? LIMIT_KANA[r.name] + '、' : '';
+  if (r.kind === 'ron') return `${pre}${r.values[0]}点`;
+  if (r.kind === 'all') return `${pre}${r.values[0]}オール`;
+  return `${pre}${r.values[0]}、${r.values[1]}`;
+}
+
+function questionKey(q) {
+  return [q.type, q.dealer ? 'oya' : 'ko', q.win, q.fu || '', q.han || '', q.limitName || ''].join('|');
+}
+function questionLabel(q) {
+  const head = `${q.dealer ? '親' : '子'}の${q.win === 'ron' ? 'ロン' : 'ツモ'}`;
+  if (q.type === 'fu') return `${head} ${q.fu}符${q.han}翻`;
+  if (q.type === 'han') return `${head} ${q.han}翻`;
+  return `${head} ${q.limitName}`;
+}
+function questionSpeech(q) {
+  const head = `${q.dealer ? 'おや' : 'こ'}の、${q.win === 'ron' ? 'ロン' : 'ツモ'}。`;
+  if (q.type === 'fu') return `${head}${FU_KANA[q.fu]}、${HAN_KANA[q.han]}は？`;
+  if (q.type === 'han') return `${head}${HAN_KANA[q.han]}は？`;
+  return `${head}${LIMIT_KANA[q.limitName]}は？`;
+}
+
+// s: {mode, dealer, win, maxFu, kiriage}
+function buildPool(s) {
+  const dealers = s.dealer === 'both' ? [true, false] : [s.dealer === 'oya'];
+  const wins = s.win === 'both' ? ['ron', 'tsumo'] : [s.win];
+  const pool = [];
+  const fus = FU_LIST.filter(f => f <= s.maxFu);
+  for (const dealer of dealers) for (const win of wins) {
+    if (s.mode === 'fu' || s.mode === 'mix') {
+      for (let han = 1; han <= 4; han++) {
+        let reached = false; // 満貫に到達した最初の符だけ出題する
+        for (const fu of fus) {
+          if (fu === 20 && (win === 'ron' || han < 2)) continue;
+          if (fu === 25 && (han < 2 || (win === 'tsumo' && han < 3))) continue;
+          if (fu === 110 && han === 1 && win === 'tsumo') continue;
+          const q = { type: 'fu', dealer, win, fu, han };
+          const r = scoreOf(q, s.kiriage);
+          if (r.name) { if (reached) continue; reached = true; }
+          pool.push(q);
+        }
+      }
+    }
+    if (s.mode === 'high' || s.mode === 'mix') {
+      for (const limitName of Object.keys(LIMITS)) pool.push({ type: 'limit', dealer, win, limitName });
+      for (let han = 5; han <= 12; han++) pool.push({ type: 'han', dealer, win, han });
+    }
+  }
+  return pool;
+}
+
+// ---------- 回答の解析 ----------
+const KD = { '〇': 0, '零': 0, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9 };
+const KU = { '十': 10, '百': 100, '千': 1000 };
+const LIMIT_WORDS = [
+  ['三倍満', /三倍満|さんばいまん|サンバイマン/],
+  ['倍満', /倍満|ばいまん|バイマン/],
+  ['跳満', /跳満|跳ね満|はね満|ハネ満|はねまん|ハネマン/],
+  ['満貫', /満貫|まんがん|マンガン/],
+  ['役満', /役満|やくまん|ヤクマン/],
+];
+
+function normalize(text) {
+  return String(text || '').normalize('NFKC').replace(/(\d)[,，](?=\d)/g, '$1');
+}
+
+function parseNumbers(text) {
+  const out = [];
+  let total = 0, section = 0, digit = null, has = false;
+  const reset = () => { total = 0; section = 0; digit = null; has = false; };
+  const flush = () => { if (has) out.push(total + section + (digit ?? 0)); reset(); };
+  let i = 0;
+  while (i < text.length) {
+    const c = text[i];
+    if (c >= '0' && c <= '9') {
+      let j = i; while (j < text.length && text[j] >= '0' && text[j] <= '9') j++;
+      if (digit !== null) flush();
+      digit = parseInt(text.slice(i, j), 10); has = true; i = j; continue;
+    }
+    if (c in KD) { if (digit !== null) flush(); digit = KD[c]; has = true; i++; continue; }
+    if (c in KU) {
+      const u = KU[c];
+      if (section % (u * 10) !== 0) { // 「七百千三百」のように位が戻ったら別の数
+        const d = digit; out.push(total + section); total = 0; section = 0; digit = d;
+      }
+      section += (digit ?? 1) * u; digit = null; has = true; i++; continue;
+    }
+    if (c === '万') {
+      total += (section + (digit ?? (section ? 0 : 1))) * 10000; section = 0; digit = null; has = true; i++; continue;
+    }
+    flush(); i++;
+  }
+  flush();
+  return out;
+}
+
+function parseAnswer(raw) {
+  let text = normalize(raw);
+  let limit = null;
+  for (const [name, re] of LIMIT_WORDS) {
+    if (re.test(text)) { if (!limit) limit = name; text = text.replace(new RegExp(re.source, 'g'), ' '); }
+  }
+  const REPEAT = /もう一[回度]|もういっかい|もういちど|もう1[回度]|繰り返|くりかえ/g;
+  const REVEAL = /パス|ぱす|わから|分から|スキップ|降参|答え/g;
+  let cmd = null;
+  if (REPEAT.test(text)) cmd = 'repeat'; else if (REVEAL.test(text)) cmd = 'reveal';
+  text = text.replace(REPEAT, ' ').replace(REVEAL, ' ');
+  const numbers = parseNumbers(text);
+  const intent = (!numbers.length && !limit) ? cmd : null;
+  return { numbers, limit, intent };
+}
+
+function isCorrect(r, parsed, allowWord) {
+  if (allowWord && r.name && parsed.limit === r.name) return true;
+  const n = parsed.numbers;
+  if (!n.length) return false;
+  const last = n[n.length - 1];
+  if (r.kind !== 'split') return last === r.values[0];
+  const [a, b] = r.values;
+  if (n.length >= 2) {
+    const x = n[n.length - 2];
+    if ((x === a && last === b) || (x === b && last === a)) return true;
+  }
+  const s = String(last); // 「7001300」のように繋がって認識された場合
+  return s === `${a}${b}` || s === `${b}${a}`;
+}
+// ==CORE END==
+
+// ---------- アプリ ----------
+const $ = id => document.getElementById(id);
+const synth = window.speechSynthesis || null;
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+
+const settings = { mode: 'fu', dealer: 'both', win: 'both', maxFu: 70, kiriage: false, count: 10, voiceAnswer: true, autoNext: true, rate: 1.0 };
+const S = { active: false, n: 0, done: 0, correct: 0, streak: 0, best: 0, q: null, answered: false, pool: [], queue: [], missed: [], lastKey: null, unknown: 0 };
+let flow = 0;            // 進行中の処理を無効化するためのカウンタ
+let rec = null, listenTimer = null, nextTimer = null;
+let state = 'idle';
+let micBlocked = false;
+let jaVoice = null;
+
+function pickVoice() {
+  if (!synth) return;
+  const vs = synth.getVoices().filter(v => /^ja/i.test(v.lang));
+  jaVoice = vs.find(v => /Google|Kyoko|O-Ren|Otoya/.test(v.name)) || vs[0] || null;
+}
+if (synth) { pickVoice(); synth.addEventListener?.('voiceschanged', pickVoice); }
+
+function speak(text) {
+  return new Promise(resolve => {
+    if (!synth) { resolve(); return; }
+    synth.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'ja-JP'; if (jaVoice) u.voice = jaVoice; u.rate = settings.rate;
+    let done = false;
+    const finish = () => { if (!done) { done = true; clearTimeout(t); resolve(); } };
+    u.onend = finish; u.onerror = finish;
+    // onend が来ないブラウザ向けの保険
+    const t = setTimeout(finish, (text.length * 260) / settings.rate + 2500);
+    synth.speak(u);
+  });
+}
+
+// ---------- 画面 ----------
+function renderTally() {
+  $('tScore').textContent = `${S.correct} / ${S.done}`;
+  $('tStreak').textContent = S.streak;
+}
+function setStatus(t) { $('status').textContent = t || ''; }
+function setHeard(t) { $('heard').textContent = t ? `「${t}」` : ''; }
+
+function renderIntro() {
+  $('plate').innerHTML = `
+    <p class="plate-intro">問題を読み上げます。<br>点数を声で答えてください。
+    <small>例：「子のロン、30符4翻は？」→「7700」</small></p>`;
+}
+
+function renderQuestion(q, extra = '') {
+  let body;
+  if (q.type === 'fu') body = `<span class="num">${q.fu}</span><span class="unit">符</span><span class="num">${q.han}</span><span class="unit">翻</span>`;
+  else if (q.type === 'han') body = `<span class="num">${q.han}</span><span class="unit">翻</span>`;
+  else body = `<span class="word">${q.limitName}</span>`;
+  const count = settings.count ? `${S.n} / ${settings.count}問` : `${S.n}問目`;
+  $('plate').innerHTML = `
+    <div class="plate-head">
+      <span class="chip ${q.dealer ? 'fill' : 'line'}">${q.dealer ? '親' : '子'}</span>
+      <span class="chip line">${q.win === 'ron' ? 'ロン' : 'ツモ'}</span>
+      ${q.review ? '<span class="review">復習</span>' : ''}
+    </div>
+    <p class="plate-q" aria-label="${questionLabel(q)}">${body}</p>
+    <p class="plate-ask">は何点？　<span style="font-size:.85em">${count}</span></p>
+    ${extra}`;
+}
+
+function renderVerdict(ok, r) {
+  const name = r.name ? `<small>${r.name}</small>` : '';
+  renderQuestion(S.q, `
+    <div class="verdict ${ok ? 'ok' : 'ng'}">
+      <span class="mark" aria-label="${ok ? '正解' : '不正解'}">${ok ? '○' : '×'}</span>
+      <p class="answer">${name}${answerLabel(r)}</p>
+      <p class="calc">${r.note}</p>
+    </div>`);
+}
+
+function setState(s) {
+  state = s;
+  const p = $('primary');
+  p.classList.toggle('listening', s === 'listening');
+  p.disabled = false;
+  const canVoice = settings.voiceAnswer && SR && !micBlocked;
+  switch (s) {
+    case 'idle': p.textContent = S.done ? 'もう一度始める' : '始める'; break;
+    case 'speaking': p.textContent = canVoice ? '読み上げ中（押すとすぐ答える）' : '読み上げ中'; p.disabled = !canVoice; break;
+    case 'listening': p.textContent = '聞いています（押すと止める）'; break;
+    case 'waiting': p.textContent = canVoice ? '声で答える' : '入力欄で答えてください'; p.disabled = !canVoice; break;
+    case 'judged': p.textContent = '次の問題'; break;
+  }
+  const inQ = S.active && (s === 'speaking' || s === 'listening' || s === 'waiting');
+  $('btnRepeat').disabled = !inQ;
+  $('btnReveal').disabled = !inQ;
+  $('btnEnd').disabled = !S.active;
+}
+
+// ---------- 進行 ----------
+function readSettings() {
+  S.pool = buildPool(settings);
+}
+
+function pickQuestion() {
+  const i = S.queue.findIndex(x => x.due <= S.n);
+  if (i >= 0) { const { q } = S.queue.splice(i, 1)[0]; return { ...q, review: true }; }
+  let q, guard = 0;
+  do { q = S.pool[Math.floor(Math.random() * S.pool.length)]; }
+  while (S.pool.length > 1 && questionKey(q) === S.lastKey && ++guard < 20);
+  return { ...q };
+}
+
+function startSession() {
+  readSettings();
+  if (!S.pool.length) { setStatus('この設定では出題できる問題がありません。設定を見直してください。'); return; }
+  Object.assign(S, { active: true, n: 0, done: 0, correct: 0, streak: 0, best: 0, queue: [], missed: [], lastKey: null });
+  renderTally();
+  ask();
+}
+
+function ask() {
+  flow++; stopListening(); clearTimeout(nextTimer);
+  if (settings.count && S.n >= settings.count) { finish(); return; }
+  const q = pickQuestion();
+  q.result = scoreOf(q, settings.kiriage);
+  S.q = q; S.answered = false; S.unknown = 0; S.n++; S.lastKey = questionKey(q);
+  renderQuestion(q);
+  setHeard(''); setStatus('');
+  $('typedInput').value = '';
+  readQuestion();
+}
+
+function readQuestion() {
+  const g = ++flow;
+  stopListening();
+  setState('speaking');
+  speak(questionSpeech(S.q)).then(() => {
+    if (g !== flow || S.answered) return;
+    afterSpeech();
+  });
+}
+
+function afterSpeech() {
+  if (settings.voiceAnswer && SR && !micBlocked) startListening(0);
+  else { setState('waiting'); if (!SR && settings.voiceAnswer) setStatus('このブラウザは音声入力に対応していません。入力欄で答えてください。'); }
+}
+
+function stopListening() {
+  clearTimeout(listenTimer);
+  if (rec) { const r = rec; rec = null; try { r.onend = null; r.abort(); } catch (e) {} }
+}
+
+function startListening(retry) {
+  stopListening();
+  const g = flow;
+  const r = new SR();
+  rec = r;
+  r.lang = 'ja-JP'; r.interimResults = true; r.maxAlternatives = 5; r.continuous = false;
+  let alts = null, err = null;
+  r.onresult = e => {
+    const res = e.results[e.results.length - 1];
+    setHeard(res[0].transcript);
+    if (res.isFinal) alts = Array.from(res).map(a => a.transcript).filter(Boolean);
+  };
+  r.onerror = e => { err = e.error; };
+  r.onend = () => {
+    if (rec !== r) return;
+    rec = null; clearTimeout(listenTimer);
+    if (g !== flow || S.answered) return;
+    if (alts && alts.length) { handleAlts(alts); return; }
+    if (err === 'not-allowed' || err === 'service-not-allowed') {
+      micBlocked = true; setState('waiting');
+      setStatus('マイクが使えません。ブラウザでマイクを許可するか、入力欄で答えてください。'); return;
+    }
+    if (retry < 1) { startListening(retry + 1); return; }
+    setState('waiting');
+    setStatus('聞き取れませんでした。「声で答える」を押すか、入力欄で答えてください。');
+  };
+  try { r.start(); } catch (e) { rec = null; setState('waiting'); setStatus('音声入力を開始できませんでした。「声で答える」を押してください。'); return; }
+  setState('listening'); setStatus('');
+  listenTimer = setTimeout(() => { try { r.stop(); } catch (e) {} }, 9000);
+}
+
+function handleAlts(alts) {
+  const allowWord = S.q.type === 'fu';
+  const parsed = alts.map(a => ({ text: a, p: parseAnswer(a) }));
+  const hit = parsed.find(x => isCorrect(S.q.result, x.p, allowWord));
+  if (hit) { setHeard(hit.text); finalize(true); return; }
+  const tried = parsed.find(x => x.p.numbers.length || x.p.limit);
+  if (tried) { setHeard(tried.text); finalize(false); return; }
+  const intent = parsed[0].p.intent;
+  setHeard(parsed[0].text);
+  if (intent === 'repeat') { readQuestion(); return; }
+  if (intent === 'reveal') { finalize(false, true); return; }
+  if (++S.unknown <= 2) { setStatus('点数が聞き取れませんでした。もう一度どうぞ。'); startListening(1); }
+  else { setState('waiting'); setStatus('点数が聞き取れませんでした。'); }
+}
+
+function submitTyped(text) {
+  if (!S.active || !S.q || S.answered) return;
+  const p = parseAnswer(text);
+  if (p.intent === 'repeat') { readQuestion(); return; }
+  if (p.intent === 'reveal') { finalize(false, true); return; }
+  if (!p.numbers.length && !p.limit) { setStatus('点数を数字で入力してください。'); return; }
+  setHeard(text);
+  finalize(isCorrect(S.q.result, p, S.q.type === 'fu'));
+}
+
+function finalize(ok, revealed = false) {
+  if (S.answered) return;
+  S.answered = true;
+  const g = ++flow;
+  stopListening();
+  const q = S.q, r = q.result;
+  S.done++;
+  if (ok) { S.correct++; S.streak++; S.best = Math.max(S.best, S.streak); }
+  else {
+    S.streak = 0;
+    S.queue.push({ q: { type: q.type, dealer: q.dealer, win: q.win, fu: q.fu, han: q.han, limitName: q.limitName }, due: S.n + 3 });
+    if (!S.missed.some(m => m.key === S.lastKey)) S.missed.push({ key: S.lastKey, label: questionLabel(q), answer: (r.name ? r.name + ' ' : '') + answerLabel(r) });
+  }
+  renderTally();
+  renderVerdict(ok, r);
+  setState('judged');
+  setStatus(revealed ? '答えを表示しました。' : '');
+  const say = ok ? '正解。' : `${revealed ? '' : '残念。'}正解は、${answerSpeech(r)}。`;
+  speak(say).then(() => {
+    if (g !== flow || !settings.autoNext || !S.active) return;
+    nextTimer = setTimeout(() => { if (g === flow) ask(); }, ok ? 500 : 1400);
+  });
+}
+
+function finish() {
+  flow++; stopListening(); clearTimeout(nextTimer);
+  S.active = false;
+  const rate = S.done ? Math.round((S.correct / S.done) * 100) : 0;
+  const list = S.missed.length
+    ? `<ul class="missed">${S.missed.map(m => `<li><span>${m.label}</span><span>${m.answer}</span></li>`).join('')}</ul>`
+    : (S.done ? '<p class="plate-ask">間違えた問題はありません。</p>' : '');
+  $('plate').innerHTML = `
+    <p class="summary-num">${S.correct}<span class="unit"> / ${S.done}問</span></p>
+    <p class="plate-ask">正答率 ${rate}%　最高連続 ${S.best}</p>
+    ${S.missed.length ? '<p class="plate-ask" style="margin-top:12px">間違えた問題</p>' : ''}
+    ${list}`;
+  setHeard(''); setStatus('');
+  setState('idle');
+  if (S.done) speak(`${S.done}問中、${S.correct}問正解です。`);
+}
+
+// ---------- 操作 ----------
+$('primary').addEventListener('click', () => {
+  switch (state) {
+    case 'idle': startSession(); break;
+    case 'speaking': if (synth) synth.cancel(); flow++; afterSpeech(); break;
+    case 'listening': if (rec) { try { rec.stop(); } catch (e) {} } break;
+    case 'waiting': micBlocked = false; startListening(1); break;
+    case 'judged': if (synth) synth.cancel(); ask(); break;
+  }
+});
+$('btnRepeat').addEventListener('click', () => { if (S.active && !S.answered) readQuestion(); });
+$('btnReveal').addEventListener('click', () => { if (S.active && !S.answered) finalize(false, true); });
+$('btnEnd').addEventListener('click', () => { if (synth) synth.cancel(); finish(); });
+$('typedForm').addEventListener('submit', e => {
+  e.preventDefault();
+  if (state === 'judged') { ask(); return; }
+  submitTyped($('typedInput').value);
+});
+
+document.querySelectorAll('.settings input[type=radio]').forEach(el => {
+  el.addEventListener('change', () => {
+    const k = el.name, v = el.value;
+    settings[k] = ['maxFu', 'count'].includes(k) ? +v : ['kiriage', 'voiceAnswer', 'autoNext'].includes(k) ? v === '1' : v;
+    if (S.active) { readSettings(); if (!S.pool.length) setStatus('この設定では出題できる問題がありません。'); else setStatus('次の問題から新しい設定で出題します。'); }
+  });
+});
+$('rate').addEventListener('input', e => { settings.rate = +e.target.value; $('rateOut').textContent = settings.rate.toFixed(1); });
+
+renderIntro();
+setState('idle');
+if (!SR) setStatus('このブラウザは音声入力に対応していません（読み上げと文字入力は使えます）。');
+</script>
+</body>
+</html>
